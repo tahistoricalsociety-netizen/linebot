@@ -86,7 +86,7 @@ Rules:
         history.append(AIMessage(content=bot_reply))
 
         # Tool handling
-        chain = prompt | 11m
+        chain = prompt | llm
 
         # Record to Google Sheets
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
