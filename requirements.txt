@@ -5,7 +5,7 @@ langchain-groq
 langchain-community
 langchain-core
 duckduckgo-search
-ddgs                     # ← This is the key — install the old backend
+ddgs==0.3.0  # ← Pin the last working version of ddgs
 gspread
 google-auth
 nest_asyncio
