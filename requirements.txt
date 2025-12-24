@@ -4,7 +4,8 @@ line-bot-sdk
 langchain-groq
 langchain-community
 langchain-core
-duckduckgo-search    
+duckduckgo-search  
+ddgs  
 gspread
 google-auth
 nest_asyncio
