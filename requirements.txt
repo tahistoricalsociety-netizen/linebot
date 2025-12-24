@@ -4,7 +4,7 @@ line-bot-sdk
 langchain-groq
 langchain-community
 langchain-core
-ddgs                    # ← This is the missing one!
+ddgs                   
 gspread
 google-auth
 nest_asyncio
