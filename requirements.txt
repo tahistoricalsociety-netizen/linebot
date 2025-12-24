@@ -2,10 +2,9 @@ fastapi
 uvicorn[standard]
 line-bot-sdk
 langchain-groq
-langchain-community
+langchain-community==0.2.17  # ← This version works with duckduckgo-search
 langchain-core
-duckduckgo-search  
-ddgs  
+duckduckgo-search==6.3.1    # ← Latest stable that LangChain expects
 gspread
 google-auth
 nest_asyncio
