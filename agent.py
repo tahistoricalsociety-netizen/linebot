@@ -3,7 +3,6 @@ from google.oauth2.service_account import Credentials
 from datetime import datetime
 import os
 from langchain_groq import ChatGroq
-from langchain_community.tools import DuckDuckGoSearchRun
 from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
@@ -18,9 +17,6 @@ llm = ChatGroq(
     timeout=10,        # Prevent long hangs
     max_retries=1,
 )
-
-# Search tool
-search_tool = DuckDuckGoSearchRun()
 
 # Google Sheets setup
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
@@ -76,8 +72,6 @@ Rules:
         MessagesPlaceholder(variable_name="history"),
     ])
 
-    # Chain
-    chain = prompt | llm.bind_tools([search_tool], tool_choice="auto")
 
     try:
         # Async invoke with timeout
@@ -92,18 +86,7 @@ Rules:
         history.append(AIMessage(content=bot_reply))
 
         # Tool handling
-        if response.tool_calls:
-            for tool_call in response.tool_calls:
-                if tool_call["name"].lower() == "duckduckgo_search":
-                    query = tool_call["args"].get("query", "")
-                    try:
-                        result = search_tool.run(query)
-                        short_result = result[:500] + "..." if len(result) > 500 else result
-                        tool_reply = f"I looked it up: {short_result}\n\nHow does this connect to your experience?"
-                        history.append(AIMessage(content=tool_reply))
-                        bot_reply = tool_reply
-                    except Exception as e:
-                        print("Search error:", e)
+        chain = prompt | 11m
 
         # Record to Google Sheets
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
