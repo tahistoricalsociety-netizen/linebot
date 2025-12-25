@@ -4,24 +4,25 @@ from datetime import datetime
 import os
 import json
 from langchain_groq import ChatGroq
-from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
+from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+import asyncio
 
-# === YOUR CURRENT (SAFE) GROQ API KEY ===
+# === Secure Groq Setup ===
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+if not GROQ_API_KEY:
+    raise ValueError("GROQ_API_KEY environment variable not set!")
 
-# Use the powerful and stable model
 llm = ChatGroq(
     groq_api_key=GROQ_API_KEY,
     model_name="llama-3.3-70b-versatile",
     temperature=0.7,
-    timeout=10,        # Prevent long hangs
+    timeout=10,
     max_retries=1,
 )
 
-# Secure way: load from environment variable
+# === Secure Google Sheets Setup ===
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
-
 creds_json = os.getenv("GOOGLE_CREDENTIALS")
 if not creds_json:
     raise ValueError("GOOGLE_CREDENTIALS environment variable not set!")
@@ -30,21 +31,15 @@ creds_info = json.loads(creds_json)
 creds = Credentials.from_service_account_info(creds_info, scopes=SCOPES)
 client = gspread.authorize(creds)
 
-# REPLACE WITH YOUR SHEET ID
+# Your Sheet ID
+SHEET_ID = "1bDQuJTF-ene3Z8lXBKkFowwKKxAYcerpSRnbeFt38sg"
+sheet = client.open_by_key(SHEET_ID).sheet1
 
-SHEET_ID = "1bDQuJTF-ene3Z8lXBKkFowwKKxAYcerpSRnbeFt38sg"  # ← From Step 1
-
-sheet = client.open_by_key(SHEET_ID).sheet1  # Use first tab
-
-# Per-user conversation history (in-memory)
+# Per-user conversation history (in-memory — persists while instance is alive)
 conversations: dict[str, list] = {}
 
-import asyncio
-from datetime import datetime
-from langchain_core.messages import HumanMessage, AIMessage
-
 async def get_agent_response(user_message: str, user_id: str) -> str:
-    # Initialize conversation with smarter, more efficient system prompt
+    # Initialize new conversation
     if user_id not in conversations:
         conversations[user_id] = []
 
@@ -75,12 +70,11 @@ Rules:
     # Add user message
     history.append(HumanMessage(content=user_message))
 
-    # Define prompt and chain (must be before try block)
+    # Define prompt and chain
     prompt = ChatPromptTemplate.from_messages([
         MessagesPlaceholder(variable_name="history"),
     ])
-
-    chain = prompt | llm  # ← This must be defined BEFORE the try block
+    chain = prompt | llm
 
     try:
         # Async invoke with timeout
@@ -91,17 +85,18 @@ Rules:
 
         bot_reply = response.content
 
-        # Save to history
+        # Save bot reply to history
         history.append(AIMessage(content=bot_reply))
 
-        # Record to Google Sheets with separate timestamps
+        # Record to Google Sheets — separate rows with accurate timestamps
         user_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        bot_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
         try:
             sheet.append_row([user_timestamp, user_id, "User", user_message, ""])
         except Exception as e:
             print("Sheets error (user row):", str(e))
 
-        bot_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         try:
             sheet.append_row([bot_timestamp, user_id, "Bot", bot_reply, "TAHS Interview"])
         except Exception as e:
