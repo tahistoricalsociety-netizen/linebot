@@ -2,6 +2,7 @@ import gspread
 from google.oauth2.service_account import Credentials
 from datetime import datetime
 import os
+import json
 from langchain_groq import ChatGroq
 from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
@@ -18,12 +19,19 @@ llm = ChatGroq(
     max_retries=1,
 )
 
-# Google Sheets setup
+# Secure way: load from environment variable
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
-CREDS = Credentials.from_service_account_file("credentials.json", scopes=SCOPES)
-client = gspread.authorize(CREDS)
+
+creds_json = os.getenv("GOOGLE_CREDENTIALS")
+if not creds_json:
+    raise ValueError("GOOGLE_CREDENTIALS environment variable not set!")
+
+creds_info = json.loads(creds_json)
+creds = Credentials.from_service_account_info(creds_info, scopes=SCOPES)
+client = gspread.authorize(creds)
 
 # REPLACE WITH YOUR SHEET ID
+
 SHEET_ID = "1bDQuJTF-ene3Z8lXBKkFowwKKxAYcerpSRnbeFt38sg"  # ← From Step 1
 
 sheet = client.open_by_key(SHEET_ID).sheet1  # Use first tab
