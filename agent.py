@@ -35,15 +35,25 @@ client = gspread.authorize(creds)
 SHEET_ID = "1bDQuJTF-ene3Z8lXBKkFowwKKxAYcerpSRnbeFt38sg"
 sheet = client.open_by_key(SHEET_ID).sheet1
 
-# === Persistent Memory on Disk (/data) ===
+# === Persistent Memory on /data Disk ===
 MEMORY_FILE = Path("/data/memory.json")
 
 # Load memory from disk on startup
 if MEMORY_FILE.exists():
     try:
         with open(MEMORY_FILE, "r", encoding="utf-8") as f:
-            conversations = json.load(f)
-        print(f"Loaded conversation memory for {len(conversations)} users from disk")
+            raw_conversations = json.load(f)
+        conversations = {}
+        for user_id, msg_list in raw_conversations.items():
+            conversations[user_id] = []
+            for msg in msg_list:
+                if msg["type"] == "human":
+                    conversations[user_id].append(HumanMessage(content=msg["content"]))
+                elif msg["type"] == "ai":
+                    conversations[user_id].append(AIMessage(content=msg["content"]))
+                elif msg.get("role") == "system":
+                    conversations[user_id].append({"role": "system", "content": msg["content"]})
+        print(f"Loaded persistent memory for {len(conversations)} users from disk")
     except Exception as e:
         print("Failed to load memory from disk:", e)
         conversations = {}
@@ -52,16 +62,26 @@ else:
     conversations = {}
 
 def save_memory():
-    """Save all conversations to disk"""
+    """Save all conversations to disk — safely serialize LangChain messages"""
     try:
+        serializable = {}
+        for user_id, history in conversations.items():
+            serializable[user_id] = []
+            for msg in history:
+                if isinstance(msg, HumanMessage):
+                    serializable[user_id].append({"type": "human", "content": msg.content})
+                elif isinstance(msg, AIMessage):
+                    serializable[user_id].append({"type": "ai", "content": msg.content})
+                elif isinstance(msg, dict) and msg.get("role") == "system":
+                    serializable[user_id].append(msg)
         with open(MEMORY_FILE, "w", encoding="utf-8") as f:
-            json.dump(conversations, f, ensure_ascii=False, indent=2)
-        print(f"Saved memory for {len(conversations)} users to disk")
+            json.dump(serializable, f, ensure_ascii=False, indent=2)
+        print(f"Saved persistent memory for {len(conversations)} users to disk")
     except Exception as e:
-        print("Failed to save memory to disk:", e)
+        print("Failed to save memory to disk:", str(e))
 
 async def get_agent_response(user_message: str, user_id: str) -> str:
-    # Initialize new conversation if not exists
+    # Initialize new conversation
     if user_id not in conversations:
         conversations[user_id] = []
         conversations[user_id].append({
@@ -109,34 +129,4 @@ Rules:
         # Save bot reply to history
         history.append(AIMessage(content=bot_reply))
 
-        # Record to Google Sheets
-        user_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        bot_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-        try:
-            sheet.append_row([user_timestamp, user_id, "User", user_message, ""])
-        except Exception as e:
-            print("Sheets error (user row):", str(e))
-
-        try:
-            sheet.append_row([bot_timestamp, user_id, "Bot", bot_reply, "TAHS Interview"])
-        except Exception as e:
-            print("Sheets error (bot row):", str(e))
-
-        # === PERSIST MEMORY TO DISK ===
-        save_memory()
-
-        return bot_reply
-
-    except asyncio.TimeoutError:
-        timeout_reply = "Thank you for waiting — I'm here. Please continue your story."
-        history.append(AIMessage(content=timeout_reply))
-        save_memory()
-        return timeout_reply
-
-    except Exception as e:
-        print("Agent error:", str(e))
-        fallback = "I'm listening. Please share when you're ready."
-        history.append(AIMessage(content=fallback))
-        save_memory()
-        return fallback
+        # === Record
