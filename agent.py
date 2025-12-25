@@ -94,14 +94,18 @@ Rules:
         # Save to history
         history.append(AIMessage(content=bot_reply))
 
-        # Record to Google Sheets
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        # Record to Google Sheets with separate timestamps
+        user_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         try:
-            sheet.append_row([timestamp, user_id, "User", user_message, ""])
-            sheet.append_row([timestamp, user_id, "Bot", bot_reply, "TAHS Interview"])
-            print(f"Recorded: {user_id}")
+            sheet.append_row([user_timestamp, user_id, "User", user_message, ""])
         except Exception as e:
-            print("Sheets error:", str(e))
+            print("Sheets error (user row):", str(e))
+
+        bot_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        try:
+            sheet.append_row([bot_timestamp, user_id, "Bot", bot_reply, "TAHS Interview"])
+        except Exception as e:
+            print("Sheets error (bot row):", str(e))
 
         return bot_reply
 
