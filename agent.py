@@ -7,6 +7,7 @@ from langchain_groq import ChatGroq
 from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 import asyncio
+from pathlib import Path
 
 # === Secure Groq Setup ===
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
@@ -31,18 +32,38 @@ creds_info = json.loads(creds_json)
 creds = Credentials.from_service_account_info(creds_info, scopes=SCOPES)
 client = gspread.authorize(creds)
 
-# Your Sheet ID
 SHEET_ID = "1bDQuJTF-ene3Z8lXBKkFowwKKxAYcerpSRnbeFt38sg"
 sheet = client.open_by_key(SHEET_ID).sheet1
 
-# Per-user conversation history (in-memory — persists while instance is alive)
-conversations: dict[str, list] = {}
+# === Persistent Memory on Disk (/data) ===
+MEMORY_FILE = Path("/data/memory.json")
+
+# Load memory from disk on startup
+if MEMORY_FILE.exists():
+    try:
+        with open(MEMORY_FILE, "r", encoding="utf-8") as f:
+            conversations = json.load(f)
+        print(f"Loaded conversation memory for {len(conversations)} users from disk")
+    except Exception as e:
+        print("Failed to load memory from disk:", e)
+        conversations = {}
+else:
+    print("No existing memory file — starting fresh")
+    conversations = {}
+
+def save_memory():
+    """Save all conversations to disk"""
+    try:
+        with open(MEMORY_FILE, "w", encoding="utf-8") as f:
+            json.dump(conversations, f, ensure_ascii=False, indent=2)
+        print(f"Saved memory for {len(conversations)} users to disk")
+    except Exception as e:
+        print("Failed to save memory to disk:", e)
 
 async def get_agent_response(user_message: str, user_id: str) -> str:
-    # Initialize new conversation
+    # Initialize new conversation if not exists
     if user_id not in conversations:
         conversations[user_id] = []
-
         conversations[user_id].append({
             "role": "system",
             "content": """
@@ -88,7 +109,7 @@ Rules:
         # Save bot reply to history
         history.append(AIMessage(content=bot_reply))
 
-        # Record to Google Sheets — separate rows with accurate timestamps
+        # Record to Google Sheets
         user_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         bot_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -102,15 +123,20 @@ Rules:
         except Exception as e:
             print("Sheets error (bot row):", str(e))
 
+        # === PERSIST MEMORY TO DISK ===
+        save_memory()
+
         return bot_reply
 
     except asyncio.TimeoutError:
         timeout_reply = "Thank you for waiting — I'm here. Please continue your story."
         history.append(AIMessage(content=timeout_reply))
+        save_memory()
         return timeout_reply
 
     except Exception as e:
         print("Agent error:", str(e))
         fallback = "I'm listening. Please share when you're ready."
         history.append(AIMessage(content=fallback))
+        save_memory()
         return fallback
