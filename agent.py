@@ -129,4 +129,34 @@ Rules:
         # Save bot reply to history
         history.append(AIMessage(content=bot_reply))
 
-        # === Record
+        # === Record to Google Sheets (Hard Copy) ===
+        user_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        bot_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        try:
+            sheet.append_row([user_timestamp, user_id, "User", user_message, ""])
+        except Exception as e:
+            print("Sheets error (user row):", str(e))
+
+        try:
+            sheet.append_row([bot_timestamp, user_id, "Bot", bot_reply, "TAHS Interview"])
+        except Exception as e:
+            print("Sheets error (bot row):", str(e))
+
+        # === Save to Persistent Disk Memory ===
+        save_memory()
+
+        return bot_reply
+
+    except asyncio.TimeoutError:
+        timeout_reply = "Thank you for waiting — I'm here. Please continue your story."
+        history.append(AIMessage(content=timeout_reply))
+        save_memory()
+        return timeout_reply
+
+    except Exception as e:
+        print("Agent error:", str(e))
+        fallback = "I'm listening. Please share when you're ready."
+        history.append(AIMessage(content=fallback))
+        save_memory()
+        return fallback
