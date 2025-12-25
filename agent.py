@@ -8,7 +8,7 @@ from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 import asyncio
 from pathlib import Path
-from linebot import LineBotApi  # For profile fetching
+from linebot import LineBotApi
 
 # === Secure Groq Setup ===
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
@@ -45,7 +45,7 @@ line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
 # === Persistent Memory on /data Disk ===
 MEMORY_FILE = Path("/data/memory.json")
 
-# User profile tracking (display name, first seen, message count, etc.)
+# User profile tracking
 user_profiles: dict[str, dict] = {}
 
 # Load memory from disk on startup
@@ -78,28 +78,4 @@ def save_memory():
         }
         for user_id, history in conversations.items():
             serializable["conversations"][user_id] = []
-            for msg in history:
-                if isinstance(msg, HumanMessage):
-                    serializable["conversations"][user_id].append({"type": "human", "content": msg.content})
-                elif isinstance(msg, AIMessage):
-                    serializable["conversations"][user_id].append({"type": "ai", "content": msg.content})
-                elif isinstance(msg, dict) and msg.get("role") == "system":
-                    serializable["conversations"][user_id].append(msg)
-        with open(MEMORY_FILE, "w", encoding="utf-8") as f:
-            json.dump(serializable, f, ensure_ascii=False, indent=2)
-        print(f"Saved persistent memory for {len(conversations)} users to disk")
-    except Exception as e:
-        print("Failed to save memory to disk:", str(e))
-
-async def get_agent_response(user_message: str, user_id: str) -> str:
-    # Initialize new conversation
-    if user_id not in conversations:
-        conversations[user_id] = []
-        conversations[user_id].append({
-            "role": "system",
-            "content": """
-You are a dedicated historiographer for the Taiwanese American Historical Society (TAHS), devoted to preserving the personal stories of migration from Taiwan to the United States.
-
-Your primary focus is on:
-- The journey to America and what was left behind in Taiwan
-- Political circumstances that shaped the decision to leave (such as martial law, the White Terror, the aftermath of the 228 Incident, or
+            for msg in history
