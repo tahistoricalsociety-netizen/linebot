@@ -75,11 +75,12 @@ Rules:
     # Add user message
     history.append(HumanMessage(content=user_message))
 
-    # Prompt
+    # Define prompt and chain (must be before try block)
     prompt = ChatPromptTemplate.from_messages([
         MessagesPlaceholder(variable_name="history"),
     ])
 
+    chain = prompt | llm  # ← This must be defined BEFORE the try block
 
     try:
         # Async invoke with timeout
@@ -92,9 +93,6 @@ Rules:
 
         # Save to history
         history.append(AIMessage(content=bot_reply))
-
-        # Tool handling
-        chain = prompt | llm
 
         # Record to Google Sheets
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
