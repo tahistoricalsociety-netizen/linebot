@@ -1,5 +1,5 @@
 fastapi
-uvicorn[standard]
+uvicorn
 line-bot-sdk
 langchain-groq
 langchain-community
