@@ -4,7 +4,8 @@ from datetime import datetime
 import os
 import json
 from langchain_groq import ChatGroq
-from langchain_core.messages import HumanMessage, AIMessage
+from langchain_community.tools import DuckDuckGoSearchRun
+from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 import asyncio
 from pathlib import Path
@@ -22,6 +23,9 @@ llm = ChatGroq(
     timeout=10,
     max_retries=1,
 )
+
+# === Search Tool ===
+search_tool = DuckDuckGoSearchRun()
 
 # === Secure Google Sheets Setup ===
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
@@ -110,13 +114,11 @@ Guidelines:
 - Introduce yourself and TAHS’s mission only in the very first message.
 - Gently invite details about their experiences, motivations, or family stories with one thoughtful, open-ended question at a time.
 - If the user’s English appears limited, offer once: “If you’d prefer, I can continue in Traditional Chinese (繁體中文).”
-
+- Use the search tool only when needed for accurate historical context about Taiwan or Taiwanese American history.
 Sharing the Bot:
 - If asked how to share you or let others talk to you: “Friends can talk to me by opening the LINE app, tapping the Add Friends icon, selecting 'Search by ID', and entering @081virdq. They can then add the TAHS official account and start chatting with Shilo.”
-
 Photos & Documents:
 - If photos, documents, or contact with TAHS staff is mentioned: “LINE cannot save photos permanently. Please email them to tahistoricalsociety@gmail.com and include your LINE ID in the subject line for proper archiving.”
-
 Memory & Tone:
 - Always remember and naturally reference prior details shared.
 - Never repeat information or summarize past messages.
@@ -159,11 +161,11 @@ Memory & Tone:
     # Add user message
     history.append(HumanMessage(content=user_message))
 
-    # Define prompt and chain
+    # Define prompt and chain with search tool
     prompt = ChatPromptTemplate.from_messages([
         MessagesPlaceholder(variable_name="history"),
     ])
-    chain = prompt | llm
+    chain = prompt | llm.bind_tools([search_tool], tool_choice="auto")
 
     try:
         # Async invoke with timeout
@@ -176,6 +178,20 @@ Memory & Tone:
 
         # Save bot reply to history
         history.append(AIMessage(content=bot_reply))
+
+        # Handle search tool if used
+        if response.tool_calls:
+            for tool_call in response.tool_calls:
+                if tool_call["name"].lower() == "duckduckgo_search":
+                    query = tool_call["args"].get("query", "")
+                    try:
+                        result = search_tool.run(query)
+                        short_result = result[:500] + "..." if len(result) > 500 else result
+                        tool_reply = f"I found this context: {short_result}\n\nHow does this relate to your own experience?"
+                        history.append(AIMessage(content=tool_reply))
+                        bot_reply = tool_reply
+                    except Exception as e:
+                        print("Search tool error:", str(e))
 
         # === Record to Google Sheets with Enriched Columns ===
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
