@@ -68,7 +68,7 @@ if MEMORY_FILE.exists():
                     conversations[user_id][i] = AIMessage(content=msg["content"])
         print(f"Loaded persistent memory for {len(conversations)} users from disk")
     except Exception as e:
-        print("Failed to load memory from disk:", str(e))
+        print("Failed to load memory from disk:", e)
         conversations = {}
 else:
     conversations = {}
@@ -151,7 +151,7 @@ Memory & Tone:
                 "picture_url": profile.picture_url or ""
             })
         except Exception as e:
-            print("Failed to fetch LINE profile:", str(e))
+            print("Failed to fetch LINE profile:", e)
             user_profiles[user_id].update({
                 "display_name": "Unknown",
                 "username": "",
