@@ -64,7 +64,7 @@ if MEMORY_FILE.exists():
                     conversations[user_id][i] = AIMessage(content=msg["content"])
         print(f"Loaded persistent memory for {len(conversations)} users from disk")
     except Exception as e:
-        print("Failed to load memory from disk:", e)
+        print("Failed to load memory from disk:", str(e))
         conversations = {}
 else:
     conversations = {}
@@ -149,7 +149,7 @@ Memory & Tone:
                 "picture_url": profile.picture_url or ""
             })
         except Exception as e:
-            print("Failed to fetch LINE profile:", e)
+            print("Failed to fetch LINE profile:", str(e))
             user_profiles[user_id].update({
                 "display_name": "Unknown",
                 "username": "",
@@ -159,7 +159,7 @@ Memory & Tone:
     # Add user message
     history.append(HumanMessage(content=user_message))
 
-    # Define prompt and chain
+    # Define prompt and chain (no search tool)
     prompt = ChatPromptTemplate.from_messages([
         MessagesPlaceholder(variable_name="history"),
     ])
