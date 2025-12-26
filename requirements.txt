@@ -1,10 +1,9 @@
 fastapi
-uvicorn
+uvicorn[standard]
 line-bot-sdk
 langchain-groq
 langchain-community
 langchain-core
-duckduckgo-search
 gspread
 google-auth
 nest_asyncio
