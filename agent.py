@@ -1,4 +1,4 @@
-import gspread #mem test 
+import gspread
 from google.oauth2.service_account import Credentials
 from datetime import datetime
 import os
@@ -58,16 +58,19 @@ if MEMORY_FILE.exists():
         # Convert raw messages back to LangChain objects
         for user_id in conversations:
             for i, msg in enumerate(conversations[user_id]):
-                if msg["type"] == "human":
+                if msg.get("type") == "human":
                     conversations[user_id][i] = HumanMessage(content=msg["content"])
-                elif msg["type"] == "ai":
+                elif msg.get("type") == "ai":
                     conversations[user_id][i] = AIMessage(content=msg["content"])
         print(f"Loaded persistent memory for {len(conversations)} users from disk")
     except Exception as e:
-        print("Failed to load memory from disk:", str(e))
+        print(f"Failed to load memory from disk (will start fresh): {e}")
         conversations = {}
+        user_profiles = {}
 else:
+    print("No memory file found — starting fresh")
     conversations = {}
+    user_profiles = {}
 
 def save_memory():
     """Save conversations and user profiles to disk"""
@@ -105,17 +108,23 @@ Your primary focus is on:
 - Any circumstances—political, economic, educational, family-related, or others—that influenced the decision to move
 - The hopes, dreams, or aspirations that shaped the path ahead, whether for oneself, children, or future generations
 
-Guidelines:
+Conversation Flow Guidelines:
+- Begin gently: In the first few exchanges, ask simple, open, low-pressure questions to help the user feel comfortable sharing (e.g., "When did you or your family come to America?" or "Where in Taiwan are your roots?").
+- Build depth gradually: Once the user is responding freely, gently move to more thoughtful questions about motivations, challenges, dreams, or meaningful memories.
+- Support ongoing stories: If the user is in the middle of sharing a story across multiple messages, respond with warm encouragement (e.g., "Thank you for sharing that — please continue when you're ready," or "That sounds meaningful — I'd love to hear more.") without asking new questions or redirecting.
+- Only ask one thoughtful, open-ended question at a time, and only when the user has finished a thought.
 - Keep every response concise (1–3 sentences), warm, natural, and deeply appreciative.
 - Introduce yourself and TAHS’s mission only in the very first message.
-- Gently invite details about their experiences, motivations, or family stories with one thoughtful, open-ended question at a time.
 - Conduct all conversations by default in Traditional Chinese (繁體中文).
 
 Sharing the Bot:
-- If asked how to share you or let others talk to you: “朋友可以打開LINE應用程式，點選「加好友」→「ID搜尋」，輸入 @081virdq 加入TAHS官方帳號，然後就能和我（Shilo）聊天了。”
+- If the user asks how to share the bot, invite friends, or let others talk to you, explain clearly and naturally how to add the TAHS official account using the LINE ID @081virdq (search by ID in Add Friends).
+- Encourage sharing by expressing appreciation for helping preserve more stories.
 
 Photos & Documents:
-- If photos, documents, or contact with TAHS staff is mentioned: “LINE無法永久保存照片或文件。請將它們發送到 tahistoricalsociety@gmail.com，並在郵件主題中包含您的LINE ID，以便妥善歸檔。”
+- If the user mentions sending photos, documents, or needing contact with TAHS staff, kindly explain that LINE cannot permanently save images or files.
+- Instruct them to email materials to tahistoricalsociety@gmail.com and to include their LINE ID in the email subject line for proper archiving.
+- Express gratitude for their willingness to contribute visual or documentary materials.
 
 Memory & Tone:
 - Always remember and naturally reference prior details shared.
@@ -128,7 +137,7 @@ Memory & Tone:
         user_profiles[user_id] = {
             "first_interaction": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "total_messages": 0,
-            "language_preference": "English",
+            "language_preference": "繁體中文",
             "display_name": "Fetching...",
             "username": "",
             "picture_url": ""
@@ -159,7 +168,7 @@ Memory & Tone:
     # Add user message
     history.append(HumanMessage(content=user_message))
 
-    # Define prompt and chain (no search tool)
+    # Define prompt and chain
     prompt = ChatPromptTemplate.from_messages([
         MessagesPlaceholder(variable_name="history"),
     ])
@@ -192,7 +201,7 @@ Memory & Tone:
             profile.get("picture_url", ""),
             profile.get("first_interaction", ""),
             profile.get("total_messages", 0),
-            profile.get("language_preference", "English")
+            profile.get("language_preference", "繁體中文")
         ]
 
         bot_row_data = row_data.copy()
@@ -216,14 +225,14 @@ Memory & Tone:
         return bot_reply
 
     except asyncio.TimeoutError:
-        timeout_reply = "Thank you for waiting — I'm here. Please continue your story."
+        timeout_reply = "感謝您的耐心等待——我在這裡。請繼續分享您的故事。"
         history.append(AIMessage(content=timeout_reply))
         save_memory()
         return timeout_reply
 
     except Exception as e:
         print("Agent error:", str(e))
-        fallback = "I'm listening. Please share when you're ready."
+        fallback = "我在傾聽。請隨時分享您的故事。"
         history.append(AIMessage(content=fallback))
         save_memory()
         return fallback
