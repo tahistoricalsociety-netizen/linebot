@@ -1,6 +1,6 @@
 import gspread
 from google.oauth2.service_account import Credentials
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
 import json
 from langchain_groq import ChatGroq
@@ -45,7 +45,7 @@ line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
 # === Persistent Memory on /data Disk ===
 MEMORY_FILE = Path("/data/memory.json")
 
-# User profile tracking
+# User profile tracking (includes last_message_time for re-engagement)
 user_profiles: dict[str, dict] = {}
 
 # Load memory from disk on startup
@@ -57,14 +57,16 @@ if MEMORY_FILE.exists():
         user_profiles = raw_data.get("profiles", {})
         # Convert raw messages back to LangChain objects
         for user_id in conversations:
-            for i, msg in enumerate(conversations[user_id]):
-                if msg.get("type") == "human":
-                    conversations[user_id][i] = HumanMessage(content=msg["content"])
-                elif msg.get("type") == "ai":
-                    conversations[user_id][i] = AIMessage(content=msg["content"])
+            conversations[user_id] = [
+                {"role": "system", "content": msg["content"]} if isinstance(msg, dict) and msg.get("role") == "system"
+                else HumanMessage(content=msg["content"]) if msg.get("type") == "human"
+                else AIMessage(content=msg["content"]) if msg.get("type") == "ai"
+                else msg
+                for msg in conversations[user_id]
+            ]
         print(f"Loaded persistent memory for {len(conversations)} users from disk")
     except Exception as e:
-        print(f"Failed to load memory from disk (will start fresh): {e}")
+        print(f"Failed to load memory from disk (starting fresh): {e}")
         conversations = {}
         user_profiles = {}
 else:
@@ -95,6 +97,8 @@ def save_memory():
         print("Failed to save memory to disk:", str(e))
 
 async def get_agent_response(user_message: str, user_id: str) -> str:
+    current_time = datetime.now()
+
     # Initialize new conversation
     if user_id not in conversations:
         conversations[user_id] = []
@@ -117,12 +121,12 @@ Conversation Flow Guidelines:
 - Introduce yourself and TAHS’s mission only in the very first message.
 - Conduct all conversations by default in Traditional Chinese (繁體中文).
 
-Inactivity Reminders (Proactive Re-engagement):
-- If the user stops responding mid-conversation, you may send gentle reminder messages after periods of inactivity.
-- Timing: First reminder after ~24 hours, second after ~3 days total, then every 7–10 days thereafter — never more frequent than once per week after the second reminder.
-- Tone: Warm, caring, and specific — reference something they shared to show genuine interest (e.g., "已經好幾天沒聽到您繼續的故事了！上次您提到家人從高雄來美國，我很想知道後來發生了什麼。" or "已經一個星期了——我還在想您說的那隻貓最後怎麼了！如果方便的話，歡迎隨時繼續分享。").
-- Purpose: Show continued interest and invite continuation without pressure.
-- Do not send reminders if the conversation appears complete or if the user has said goodbye.
+Re-engagement After Inactivity:
+- When the user returns after a pause, warmly acknowledge the time passed and reference something specific they shared earlier.
+- Examples:
+  - After a few days: "歡迎回來！上次您提到家人從高雄來美國，我一直很想知道後來發生了什麼。"
+  - After a week or more: "已經有一陣子沒聽到您的故事了！上次您說到那段經歷，我還在想著呢——如果方便的話，歡迎繼續分享。"
+- This shows genuine care and memory without pressure.
 
 Sharing the Bot:
 - If the user asks how to share the bot or let others talk to you, explain clearly and naturally how to add the TAHS official account using the LINE ID @081virdq (search by ID in Add Friends).
@@ -140,9 +144,10 @@ Memory & Tone:
 """
         })
 
-        # Initialize user profile tracking
+        # Initialize user profile tracking with last_message_time
         user_profiles[user_id] = {
-            "first_interaction": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "first_interaction": current_time.strftime("%Y-%m-%d %H:%M:%S"),
+            "last_message_time": current_time.isoformat(),
             "total_messages": 0,
             "language_preference": "繁體中文",
             "display_name": "Fetching...",
@@ -152,7 +157,8 @@ Memory & Tone:
 
     history = conversations[user_id]
 
-    # Update message count
+    # Update last message time and count
+    user_profiles[user_id]["last_message_time"] = current_time.isoformat()
     user_profiles[user_id]["total_messages"] = user_profiles[user_id].get("total_messages", 0) + 1
 
     # Fetch LINE profile (only once)
@@ -171,6 +177,25 @@ Memory & Tone:
                 "username": "",
                 "picture_url": ""
             })
+
+    # === Check for long absence and add warm re-engagement ===
+    last_time_str = user_profiles[user_id].get("last_message_time")
+    reengage_prefix = ""
+    if last_time_str:
+        try:
+            last_time = datetime.fromisoformat(last_time_str)
+            time_diff = current_time - last_time
+            if time_diff > timedelta(days=30):
+                reengage_prefix = f"已經一個多月沒聽到您的故事了！上次您提到"
+            elif time_diff > timedelta(days=7):
+                reengage_prefix = f"已經一星期多了——我還在想您上次分享的"
+            elif time_diff > timedelta(days=2):
+                reengage_prefix = f"歡迎回來！已經幾天沒聽到您的故事了，"
+            if reengage_prefix:
+                # Prepend to user message to give context to LLM
+                user_message = f"[User returning after {time_diff.days} days] {reengage_prefix} {user_message}"
+        except:
+            pass  # Fallback if parsing fails
 
     # Add user message
     history.append(HumanMessage(content=user_message))
@@ -194,7 +219,7 @@ Memory & Tone:
         history.append(AIMessage(content=bot_reply))
 
         # === Record to Google Sheets with Enriched Columns ===
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        timestamp = current_time.strftime("%Y-%m-%d %H:%M:%S")
         profile = user_profiles[user_id]
 
         row_data = [

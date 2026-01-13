@@ -2,6 +2,7 @@ fastapi
 uvicorn
 line-bot-sdk
 langchain-groq
+wikipedia
 langchain-community
 langchain-core
 gspread
