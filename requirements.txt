@@ -8,3 +8,4 @@ langchain-core
 gspread
 google-auth
 nest_asyncio
+slowapi
