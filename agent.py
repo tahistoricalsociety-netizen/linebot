@@ -4,13 +4,11 @@ from datetime import datetime, timedelta
 import os
 import json
 from langchain_groq import ChatGroq
-from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
+from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 import asyncio
 from pathlib import Path
 from linebot import LineBotApi
-from langchain_community.tools import WikipediaQueryRun
-from langchain_community.utilities import WikipediaAPIWrapper
 
 # === Secure Groq Setup ===
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
@@ -24,9 +22,6 @@ llm = ChatGroq(
     timeout=10,
     max_retries=1,
 )
-
-# === Wikipedia Tool ===
-wikipedia_tool = WikipediaQueryRun(api_wrapper=WikipediaAPIWrapper())
 
 # === Secure Google Sheets Setup ===
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
@@ -134,7 +129,7 @@ Re-engagement After Inactivity:
 - This shows genuine care and memory without pressure.
 
 Sharing the Bot:
-- If the user asks how to share the bot, invite friends, or let others talk to you, explain clearly and naturally how to add the TAHS official account using the LINE ID @081virdq (search by ID in Add Friends).
+- If the user asks how to share the bot or let others talk to you, explain clearly and naturally how to add the TAHS official account using the LINE ID @081virdq (search by ID in Add Friends).
 - Express appreciation for helping preserve more stories.
 
 Photos & Documents:
@@ -191,12 +186,13 @@ Memory & Tone:
             last_time = datetime.fromisoformat(last_time_str)
             time_diff = current_time - last_time
             if time_diff > timedelta(days=30):
-                reengage_prefix = "已經一個多月沒聽到您的故事了！"
+                reengage_prefix = f"已經一個多月沒聽到您的故事了！上次您提到"
             elif time_diff > timedelta(days=7):
-                reengage_prefix = "已經一星期多了——我還在想您上次分享的"
+                reengage_prefix = f"已經一星期多了——我還在想您上次分享的"
             elif time_diff > timedelta(days=2):
-                reengage_prefix = "歡迎回來！已經幾天沒聽到您的故事了，"
+                reengage_prefix = f"歡迎回來！已經幾天沒聽到您的故事了，"
             if reengage_prefix:
+                # Prepend to user message to give context to LLM
                 user_message = f"[User returning after {time_diff.days} days] {reengage_prefix} {user_message}"
         except:
             pass  # Fallback if parsing fails
@@ -204,11 +200,11 @@ Memory & Tone:
     # Add user message
     history.append(HumanMessage(content=user_message))
 
-    # Define prompt and chain with Wikipedia tool
+    # Define prompt and chain
     prompt = ChatPromptTemplate.from_messages([
         MessagesPlaceholder(variable_name="history"),
     ])
-    chain = prompt | llm.bind_tools([wikipedia_tool], tool_choice="auto")
+    chain = prompt | llm
 
     try:
         # Async invoke with timeout
@@ -218,20 +214,6 @@ Memory & Tone:
         )
 
         bot_reply = response.content
-
-        # Handle Wikipedia tool if called
-        if response.tool_calls:
-            for tool_call in response.tool_calls:
-                if tool_call["name"] == "wikipedia_query_run":
-                    query = tool_call["args"].get("query", "")
-                    try:
-                        result = wikipedia_tool.run(query)
-                        short_result = result[:500] + "..." if len(result) > 500 else result
-                        tool_reply = f"根據維基百科：{short_result}\n\n這與您的家族經歷有什麼相關之處呢？"
-                        history.append(AIMessage(content=tool_reply))
-                        bot_reply = tool_reply
-                    except Exception as e:
-                        print("Wikipedia tool error:", str(e))
 
         # Save bot reply to history
         history.append(AIMessage(content=bot_reply))
