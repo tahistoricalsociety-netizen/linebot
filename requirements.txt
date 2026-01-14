@@ -2,9 +2,9 @@ fastapi
 uvicorn
 line-bot-sdk
 langchain-groq
+wikipedia
 langchain-community
 langchain-core
-wikipedia
 gspread
 google-auth
 nest_asyncio

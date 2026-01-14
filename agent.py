@@ -193,4 +193,96 @@ Memory & Tone:
             if time_diff > timedelta(days=30):
                 reengage_prefix = "已經一個多月沒聽到您的故事了！"
             elif time_diff > timedelta(days=7):
-                reengage_prefix = "已經一星期多了——我還
+                reengage_prefix = "已經一星期多了——我還在想您上次分享的"
+            elif time_diff > timedelta(days=2):
+                reengage_prefix = "歡迎回來！已經幾天沒聽到您的故事了，"
+            if reengage_prefix:
+                user_message = f"[User returning after {time_diff.days} days] {reengage_prefix} {user_message}"
+        except:
+            pass  # Fallback if parsing fails
+
+    # Add user message
+    history.append(HumanMessage(content=user_message))
+
+    # Define prompt and chain with Wikipedia tool
+    prompt = ChatPromptTemplate.from_messages([
+        MessagesPlaceholder(variable_name="history"),
+    ])
+    chain = prompt | llm.bind_tools([wikipedia_tool], tool_choice="auto")
+
+    try:
+        # Async invoke with timeout
+        response = await asyncio.wait_for(
+            chain.ainvoke({"history": history}),
+            timeout=12.0
+        )
+
+        bot_reply = response.content
+
+        # Handle Wikipedia tool if called
+        if response.tool_calls:
+            for tool_call in response.tool_calls:
+                if tool_call["name"] == "wikipedia_query_run":
+                    query = tool_call["args"].get("query", "")
+                    try:
+                        result = wikipedia_tool.run(query)
+                        short_result = result[:500] + "..." if len(result) > 500 else result
+                        tool_reply = f"根據維基百科：{short_result}\n\n這與您的家族經歷有什麼相關之處呢？"
+                        history.append(AIMessage(content=tool_reply))
+                        bot_reply = tool_reply
+                    except Exception as e:
+                        print("Wikipedia tool error:", str(e))
+
+        # Save bot reply to history
+        history.append(AIMessage(content=bot_reply))
+
+        # === Record to Google Sheets with Enriched Columns ===
+        timestamp = current_time.strftime("%Y-%m-%d %H:%M:%S")
+        profile = user_profiles[user_id]
+
+        row_data = [
+            timestamp,
+            user_id,
+            "User",
+            user_message,
+            "",
+            profile.get("display_name", "Unknown"),
+            profile.get("username", ""),
+            profile.get("picture_url", ""),
+            profile.get("first_interaction", ""),
+            profile.get("total_messages", 0),
+            profile.get("language_preference", "繁體中文")
+        ]
+
+        bot_row_data = row_data.copy()
+        bot_row_data[2] = "Bot"
+        bot_row_data[3] = bot_reply
+        bot_row_data[4] = "TAHS Interview"
+
+        try:
+            sheet.append_row(row_data)
+        except Exception as e:
+            print("Sheets error (user row):", str(e))
+
+        try:
+            sheet.append_row(bot_row_data)
+        except Exception as e:
+            print("Sheets error (bot row):", str(e))
+
+        # === Save Persistent Memory ===
+        save_memory()
+
+        return bot_reply
+
+    except asyncio.TimeoutError:
+        timeout_reply = "感謝您的耐心等待——我在這裡。請繼續分享您的故事。"
+        history.append(AIMessage(content=timeout_reply))
+        save_memory()
+        return timeout_reply
+
+    except Exception as e:
+        print("Agent error:", str(e))
+        fallback = "我在傾聽。請隨時分享您的故事。"
+        history.append(AIMessage(content=fallback))
+        save_memory()
+        return fallback
