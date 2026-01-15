@@ -35,7 +35,6 @@ client = gspread.authorize(creds)
 
 SHEET_ID = "1bDQuJTF-ene3Z8lXBKkFowwKKxAYcerpSRnbeFt38sg"
 sheet = client.open_by_key(SHEET_ID).sheet1
-error_sheet = client.open_by_key(SHEET_ID).worksheet("Errors")  # Error logging tab (create manually if missing)
 
 # === LINE Bot API for Profile Fetching ===
 LINE_CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
@@ -46,7 +45,7 @@ line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
 # === Persistent Memory on /data Disk ===
 MEMORY_FILE = Path("/data/memory.json")
 
-# User profile tracking
+# User profile tracking (includes last_message_time for re-engagement)
 user_profiles: dict[str, dict] = {}
 
 # Load memory from disk on startup
@@ -99,7 +98,6 @@ def save_memory():
 
 async def get_agent_response(user_message: str, user_id: str) -> str:
     current_time = datetime.now()
-    timestamp = current_time.strftime("%Y-%m-%d %H:%M:%S")
 
     # Initialize new conversation
     if user_id not in conversations:
@@ -175,19 +173,6 @@ Memory & Tone:
             })
         except Exception as e:
             print("Failed to fetch LINE profile:", str(e))
-            # Log profile fetch error
-            try:
-                error_sheet.append_row([
-                    timestamp,
-                    user_id,
-                    "LINE Profile Fetch Failure",
-                    str(e),
-                    "",
-                    user_message,
-                    ""
-                ])
-            except:
-                pass
             user_profiles[user_id].update({
                 "display_name": "Unknown",
                 "username": "",
@@ -208,14 +193,15 @@ Memory & Tone:
             elif time_diff > timedelta(days=2):
                 reengage_prefix = f"歡迎回來！已經幾天沒聽到您的故事了，"
             if reengage_prefix:
+                # Prepend to user message to give context to LLM
                 user_message = f"[User returning after {time_diff.days} days] {reengage_prefix} {user_message}"
-        except Exception as e:
-            print("Re-engagement time parse error:", str(e))
+        except:
+            pass  # Fallback if parsing fails
 
     # Add user message
     history.append(HumanMessage(content=user_message))
 
-    # Define prompt and chain (no tools for stability)
+    # Define prompt and chain
     prompt = ChatPromptTemplate.from_messages([
         MessagesPlaceholder(variable_name="history"),
     ])
@@ -228,16 +214,15 @@ Memory & Tone:
             timeout=12.0
         )
 
-        bot_reply = response.content or ""
-
-        # Ensure reply is never empty (LINE requires 1+ char)
-        if not bot_reply or bot_reply.strip() == "":
-            bot_reply = "我在這裡傾聽您的故事。如果有什麼想分享的，請繼續告訴我，好嗎？"
+        bot_reply = response.content
 
         # Save bot reply to history
         history.append(AIMessage(content=bot_reply))
 
         # === Record to Google Sheets with Enriched Columns ===
+        timestamp = current_time.strftime("%Y-%m-%d %H:%M:%S")
+        profile = user_profiles[user_id]
+
         row_data = [
             timestamp,
             user_id,
@@ -261,56 +246,20 @@ Memory & Tone:
             sheet.append_row(row_data)
         except Exception as e:
             print("Sheets error (user row):", str(e))
-            try:
-                error_sheet.append_row([
-                    timestamp,
-                    user_id,
-                    "Sheets Append Failure (User)",
-                    str(e),
-                    "",
-                    user_message,
-                    bot_reply
-                ])
-            except:
-                pass
 
         try:
             sheet.append_row(bot_row_data)
         except Exception as e:
             print("Sheets error (bot row):", str(e))
-            try:
-                error_sheet.append_row([
-                    timestamp,
-                    user_id,
-                    "Sheets Append Failure (Bot)",
-                    str(e),
-                    "",
-                    user_message,
-                    bot_reply
-                ])
-            except:
-                pass
 
         # === Save Persistent Memory ===
         save_memory()
 
         return bot_reply
 
-    except asyncio.TimeoutError as e:
-        timeout_reply = "感謝您的耐心等待——我在這裡。請繼續分享您的故事，好嗎？"
+    except asyncio.TimeoutError:
+        timeout_reply = "感謝您的耐心等待——我在這裡。請繼續分享您的故事。"
         history.append(AIMessage(content=timeout_reply))
-        try:
-            error_sheet.append_row([
-                timestamp,
-                user_id,
-                "Timeout",
-                "Async operation timed out after 12 seconds",
-                str(e),
-                user_message,
-                timeout_reply
-            ])
-        except Exception as log_e:
-            print("Error logging failed:", str(log_e))
         save_memory()
         return timeout_reply
 
@@ -318,17 +267,5 @@ Memory & Tone:
         print("Agent error:", str(e))
         fallback = "我在傾聽。請隨時分享您的故事。"
         history.append(AIMessage(content=fallback))
-        try:
-            error_sheet.append_row([
-                timestamp,
-                user_id,
-                "General Exception",
-                str(e),
-                "",
-                user_message,
-                fallback
-            ])
-        except Exception as log_e:
-            print("Error logging failed:", str(log_e))
         save_memory()
         return fallback
