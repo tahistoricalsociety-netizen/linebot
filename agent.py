@@ -226,18 +226,23 @@ Memory & Tone:
         # Handle Wikipedia tool calls
         if response.tool_calls:
             print("Tool call detected:", response.tool_calls)  # Debug log
+            tool_results = []
             for tool_call in response.tool_calls:
                 if tool_call["name"].lower() == "wikipedia_query_run":
                     query = tool_call["args"].get("query", "")
                     try:
                         result = wikipedia_tool.run(query)
                         short_result = result[:500] + "..." if len(result) > 500 else result
-                        tool_reply = f"根據維基百科：{short_result}\n\n這對您的家族經歷有什麼相關之處呢？"
-                        history.append(AIMessage(content=tool_reply))
-                        bot_reply = tool_reply  # Explicitly set from tool
+                        tool_result = f"根據維基百科：{short_result}"
+                        tool_results.append(tool_result)
+                        history.append(AIMessage(content=tool_result))
                     except Exception as e:
                         print("Wikipedia tool error:", str(e))
-                        bot_reply = "我正在查詢相關歷史資訊，請稍等..."
+                        tool_results.append("無法查詢維基百科，請稍後再試。")
+
+            # Combine tool results into final reply if any
+            if tool_results:
+                bot_reply = "\n".join(tool_results) + "\n\n這對您的故事有什麼聯繫嗎？"
 
         # Ensure reply is never empty (LINE requires 1+ char)
         if not bot_reply or bot_reply.strip() == "":
