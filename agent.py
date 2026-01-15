@@ -4,9 +4,7 @@ from datetime import datetime, timedelta
 import os
 import json
 from langchain_groq import ChatGroq
-from langchain_community.tools import WikipediaQueryRun
-from langchain_community.utilities import WikipediaAPIWrapper
-from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
+from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 import asyncio
 from pathlib import Path
@@ -25,9 +23,6 @@ llm = ChatGroq(
     max_retries=1,
 )
 
-# === Wikipedia Tool ===
-wikipedia_tool = WikipediaQueryRun(api_wrapper=WikipediaAPIWrapper())
-
 # === Secure Google Sheets Setup ===
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 creds_json = os.getenv("GOOGLE_CREDENTIALS")
@@ -40,7 +35,7 @@ client = gspread.authorize(creds)
 
 SHEET_ID = "1bDQuJTF-ene3Z8lXBKkFowwKKxAYcerpSRnbeFt38sg"
 sheet = client.open_by_key(SHEET_ID).sheet1
-error_sheet = client.open_by_key(SHEET_ID).worksheet("Errors")  # Error logging tab
+error_sheet = client.open_by_key(SHEET_ID).worksheet("Errors")  # Error logging tab (create manually if missing)
 
 # === LINE Bot API for Profile Fetching ===
 LINE_CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
@@ -128,8 +123,6 @@ Conversation Flow Guidelines:
 - Introduce yourself and TAHS’s mission only in the very first message.
 - Respond in the language the user is currently using (English if they ask for it, Traditional Chinese otherwise).
 - If the user says "English please" or similar, immediately switch to English and stay in English for the rest of the conversation.
-- For any historical facts, events, dates, or names related to Taiwan, Taiwanese history, or Taiwanese American topics, ALWAYS use the Wikipedia tool first to ensure accuracy and include a brief citation.
-- Use the Wikipedia tool when needed for accurate historical context about Taiwan or Taiwanese American history.
 
 Re-engagement After Inactivity:
 - When the user returns after a pause, warmly acknowledge the time passed and reference something specific they shared earlier.
@@ -182,6 +175,19 @@ Memory & Tone:
             })
         except Exception as e:
             print("Failed to fetch LINE profile:", str(e))
+            # Log profile fetch error
+            try:
+                error_sheet.append_row([
+                    timestamp,
+                    user_id,
+                    "LINE Profile Fetch Failure",
+                    str(e),
+                    "",
+                    user_message,
+                    ""
+                ])
+            except:
+                pass
             user_profiles[user_id].update({
                 "display_name": "Unknown",
                 "username": "",
@@ -203,17 +209,17 @@ Memory & Tone:
                 reengage_prefix = f"歡迎回來！已經幾天沒聽到您的故事了，"
             if reengage_prefix:
                 user_message = f"[User returning after {time_diff.days} days] {reengage_prefix} {user_message}"
-        except:
-            pass
+        except Exception as e:
+            print("Re-engagement time parse error:", str(e))
 
     # Add user message
     history.append(HumanMessage(content=user_message))
 
-    # Define prompt and chain with Wikipedia tool
+    # Define prompt and chain (no tools for stability)
     prompt = ChatPromptTemplate.from_messages([
         MessagesPlaceholder(variable_name="history"),
     ])
-    chain = prompt | llm.bind_tools([wikipedia_tool], tool_choice="auto")
+    chain = prompt | llm
 
     try:
         # Async invoke with timeout
@@ -222,41 +228,7 @@ Memory & Tone:
             timeout=12.0
         )
 
-        # Start with response content (may be empty when tool calls present)
         bot_reply = response.content or ""
-
-        # Handle Wikipedia tool calls
-        if response.tool_calls:
-            print("Tool call detected:", response.tool_calls)  # Debug log
-            tool_results = []
-            for tool_call in response.tool_calls:
-                if tool_call["name"].lower() == "wikipedia_query_run":
-                    query = tool_call["args"].get("query", "")
-                    try:
-                        result = wikipedia_tool.run(query)
-                        short_result = result[:500] + "..." if len(result) > 500 else result
-                        tool_reply = f"根據維基百科：{short_result}\n\n這對您的家族經歷有什麼相關之處呢？"
-                        tool_results.append(tool_reply)
-                        history.append(AIMessage(content=tool_reply))
-                    except Exception as e:
-                        print("Wikipedia tool error:", str(e))
-                        tool_results.append("無法查詢維基百科，請稍後再試。")
-                        # Log tool error to Errors tab
-                        try:
-                            error_sheet.append_row([
-                                current_time.strftime("%Y-%m-%d %H:%M:%S"),
-                                user_id,
-                                "Wikipedia Tool Failure",
-                                str(e),
-                                "",
-                                user_message,
-                                "無法查詢維基百科"
-                            ])
-                        except Exception as log_e:
-                            print("Error logging failed:", str(log_e))
-            # Combine tool results into final reply if any
-            if tool_results:
-                bot_reply = "\n".join(tool_results)
 
         # Ensure reply is never empty (LINE requires 1+ char)
         if not bot_reply or bot_reply.strip() == "":
@@ -266,9 +238,6 @@ Memory & Tone:
         history.append(AIMessage(content=bot_reply))
 
         # === Record to Google Sheets with Enriched Columns ===
-        timestamp = current_time.strftime("%Y-%m-%d %H:%M:%S")
-        profile = user_profiles[user_id]
-
         row_data = [
             timestamp,
             user_id,
@@ -292,7 +261,6 @@ Memory & Tone:
             sheet.append_row(row_data)
         except Exception as e:
             print("Sheets error (user row):", str(e))
-            # Log Sheets error
             try:
                 error_sheet.append_row([
                     timestamp,
@@ -310,7 +278,6 @@ Memory & Tone:
             sheet.append_row(bot_row_data)
         except Exception as e:
             print("Sheets error (bot row):", str(e))
-            # Log Sheets error
             try:
                 error_sheet.append_row([
                     timestamp,
@@ -332,10 +299,9 @@ Memory & Tone:
     except asyncio.TimeoutError as e:
         timeout_reply = "感謝您的耐心等待——我在這裡。請繼續分享您的故事，好嗎？"
         history.append(AIMessage(content=timeout_reply))
-        # Log timeout error
         try:
             error_sheet.append_row([
-                current_time.strftime("%Y-%m-%d %H:%M:%S"),
+                timestamp,
                 user_id,
                 "Timeout",
                 "Async operation timed out after 12 seconds",
@@ -352,10 +318,9 @@ Memory & Tone:
         print("Agent error:", str(e))
         fallback = "我在傾聽。請隨時分享您的故事。"
         history.append(AIMessage(content=fallback))
-        # Log general error
         try:
             error_sheet.append_row([
-                current_time.strftime("%Y-%m-%d %H:%M:%S"),
+                timestamp,
                 user_id,
                 "General Exception",
                 str(e),
