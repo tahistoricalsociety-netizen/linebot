@@ -125,9 +125,9 @@ Conversation Flow Guidelines:
 - Keep every response concise (1–3 sentences), warm, natural, and deeply appreciative.
 - Introduce yourself and TAHS’s mission only in the very first message.
 - Respond in the language the user is currently using (English if they ask for it, Traditional Chinese otherwise).
-- If the user says "English please" or similar, immediately switch to English and stay in English for the rest of the conversation..
-- Use the Wikipedia tool when needed for accurate historical context about Taiwan or Taiwanese American history.
+- If the user says "English please" or similar, immediately switch to English and stay in English for the rest of the conversation.
 - For any historical facts, events, dates, or names related to Taiwan, Taiwanese history, or Taiwanese American topics, ALWAYS use the Wikipedia tool first to ensure accuracy and include a brief citation.
+- Use the Wikipedia tool when needed for accurate historical context about Taiwan or Taiwanese American history.
 
 Re-engagement After Inactivity:
 - When the user returns after a pause, warmly acknowledge the time passed and reference something specific they shared earlier.
@@ -220,9 +220,10 @@ Memory & Tone:
             timeout=12.0
         )
 
-        bot_reply = response.content
+        # Start with response content (may be empty when tool calls present)
+        bot_reply = response.content or ""
 
-                # Handle Wikipedia tool calls
+        # Handle Wikipedia tool calls
         if response.tool_calls:
             print("Tool call detected:", response.tool_calls)  # Debug log
             for tool_call in response.tool_calls:
@@ -231,16 +232,14 @@ Memory & Tone:
                     try:
                         result = wikipedia_tool.run(query)
                         short_result = result[:500] + "..." if len(result) > 500 else result
-                        tool_reply = f"根據維基百科：{short_result}\n\n這對您的故事有什麼聯繫嗎？"
+                        tool_reply = f"根據維基百科：{short_result}\n\n這對您的家族經歷有什麼相關之處呢？"
                         history.append(AIMessage(content=tool_reply))
-                        bot_reply = tool_reply
+                        bot_reply = tool_reply  # Explicitly set from tool
                     except Exception as e:
                         print("Wikipedia tool error:", str(e))
-                        bot_reply = "我正在查詢相關歷史資訊，請稍等..."  # Fallback
-        else:
-            print("No tool call — direct reply")
+                        bot_reply = "我正在查詢相關歷史資訊，請稍等..."
 
-        # Ensure reply is never empty
+        # Ensure reply is never empty (LINE requires 1+ char)
         if not bot_reply or bot_reply.strip() == "":
             bot_reply = "我在這裡傾聽您的故事。如果有什麼想分享的，請繼續告訴我，好嗎？"
 
@@ -297,4 +296,3 @@ Memory & Tone:
         history.append(AIMessage(content=fallback))
         save_memory()
         return fallback
-
