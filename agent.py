@@ -25,7 +25,7 @@ llm = ChatGroq(
     max_retries=1,
 )
 
-# === Wikipedia Tool (stable, no ddgs dependency) ===
+# === Wikipedia Tool ===
 wikipedia_tool = WikipediaQueryRun(api_wrapper=WikipediaAPIWrapper())
 
 # === Secure Google Sheets Setup ===
@@ -234,6 +234,10 @@ Memory & Tone:
                     except Exception as e:
                         print("Wikipedia tool error:", str(e))
 
+        # Ensure reply is never empty (LINE requires 1+ char)
+        if not bot_reply or bot_reply.strip() == "":
+            bot_reply = "我在這裡傾聽您的故事。如果有什麼想分享的，請繼續告訴我，好嗎？"
+
         # Save bot reply to history
         history.append(AIMessage(content=bot_reply))
 
@@ -276,7 +280,7 @@ Memory & Tone:
         return bot_reply
 
     except asyncio.TimeoutError:
-        timeout_reply = "感謝您的耐心等待——我在這裡。請繼續分享您的故事。"
+        timeout_reply = "感謝您的耐心等待——我在這裡。請繼續分享您的故事，好嗎？"
         history.append(AIMessage(content=timeout_reply))
         save_memory()
         return timeout_reply
