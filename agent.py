@@ -40,6 +40,7 @@ client = gspread.authorize(creds)
 
 SHEET_ID = "1bDQuJTF-ene3Z8lXBKkFowwKKxAYcerpSRnbeFt38sg"
 sheet = client.open_by_key(SHEET_ID).sheet1
+error_sheet = client.open_by_key(SHEET_ID).worksheet("Errors")  # Error logging tab
 
 # === LINE Bot API for Profile Fetching ===
 LINE_CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
@@ -103,6 +104,7 @@ def save_memory():
 
 async def get_agent_response(user_message: str, user_id: str) -> str:
     current_time = datetime.now()
+    timestamp = current_time.strftime("%Y-%m-%d %H:%M:%S")
 
     # Initialize new conversation
     if user_id not in conversations:
@@ -233,16 +235,28 @@ Memory & Tone:
                     try:
                         result = wikipedia_tool.run(query)
                         short_result = result[:500] + "..." if len(result) > 500 else result
-                        tool_result = f"根據維基百科：{short_result}"
-                        tool_results.append(tool_result)
-                        history.append(AIMessage(content=tool_result))
+                        tool_reply = f"根據維基百科：{short_result}\n\n這對您的家族經歷有什麼相關之處呢？"
+                        tool_results.append(tool_reply)
+                        history.append(AIMessage(content=tool_reply))
                     except Exception as e:
                         print("Wikipedia tool error:", str(e))
                         tool_results.append("無法查詢維基百科，請稍後再試。")
-
+                        # Log tool error to Errors tab
+                        try:
+                            error_sheet.append_row([
+                                current_time.strftime("%Y-%m-%d %H:%M:%S"),
+                                user_id,
+                                "Wikipedia Tool Failure",
+                                str(e),
+                                "",
+                                user_message,
+                                "無法查詢維基百科"
+                            ])
+                        except Exception as log_e:
+                            print("Error logging failed:", str(log_e))
             # Combine tool results into final reply if any
             if tool_results:
-                bot_reply = "\n".join(tool_results) + "\n\n這對您的故事有什麼聯繫嗎？"
+                bot_reply = "\n".join(tool_results)
 
         # Ensure reply is never empty (LINE requires 1+ char)
         if not bot_reply or bot_reply.strip() == "":
@@ -278,20 +292,59 @@ Memory & Tone:
             sheet.append_row(row_data)
         except Exception as e:
             print("Sheets error (user row):", str(e))
+            # Log Sheets error
+            try:
+                error_sheet.append_row([
+                    timestamp,
+                    user_id,
+                    "Sheets Append Failure (User)",
+                    str(e),
+                    "",
+                    user_message,
+                    bot_reply
+                ])
+            except:
+                pass
 
         try:
             sheet.append_row(bot_row_data)
         except Exception as e:
             print("Sheets error (bot row):", str(e))
+            # Log Sheets error
+            try:
+                error_sheet.append_row([
+                    timestamp,
+                    user_id,
+                    "Sheets Append Failure (Bot)",
+                    str(e),
+                    "",
+                    user_message,
+                    bot_reply
+                ])
+            except:
+                pass
 
         # === Save Persistent Memory ===
         save_memory()
 
         return bot_reply
 
-    except asyncio.TimeoutError:
+    except asyncio.TimeoutError as e:
         timeout_reply = "感謝您的耐心等待——我在這裡。請繼續分享您的故事，好嗎？"
         history.append(AIMessage(content=timeout_reply))
+        # Log timeout error
+        try:
+            error_sheet.append_row([
+                current_time.strftime("%Y-%m-%d %H:%M:%S"),
+                user_id,
+                "Timeout",
+                "Async operation timed out after 12 seconds",
+                str(e),
+                user_message,
+                timeout_reply
+            ])
+        except Exception as log_e:
+            print("Error logging failed:", str(log_e))
         save_memory()
         return timeout_reply
 
@@ -299,5 +352,18 @@ Memory & Tone:
         print("Agent error:", str(e))
         fallback = "我在傾聽。請隨時分享您的故事。"
         history.append(AIMessage(content=fallback))
+        # Log general error
+        try:
+            error_sheet.append_row([
+                current_time.strftime("%Y-%m-%d %H:%M:%S"),
+                user_id,
+                "General Exception",
+                str(e),
+                "",
+                user_message,
+                fallback
+            ])
+        except Exception as log_e:
+            print("Error logging failed:", str(log_e))
         save_memory()
         return fallback
