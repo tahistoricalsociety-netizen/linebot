@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 import os
 import json
 from langchain_groq import ChatGroq
-from langchain_community.tools import DuckDuckGoSearchRun, WikipediaQueryRun
+from langchain_community.tools import WikipediaQueryRun
 from langchain_community.utilities import WikipediaAPIWrapper
 from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
@@ -25,8 +25,7 @@ llm = ChatGroq(
     max_retries=1,
 )
 
-# === Search Tools ===
-search_tool = DuckDuckGoSearchRun()
+# === Wikipedia Tool (stable, no ddgs dependency) ===
 wikipedia_tool = WikipediaQueryRun(api_wrapper=WikipediaAPIWrapper())
 
 # === Secure Google Sheets Setup ===
@@ -51,7 +50,7 @@ line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
 # === Persistent Memory on /data Disk ===
 MEMORY_FILE = Path("/data/memory.json")
 
-# User profile tracking (includes last_message_time)
+# User profile tracking
 user_profiles: dict[str, dict] = {}
 
 # Load memory from disk on startup
@@ -126,7 +125,7 @@ Conversation Flow Guidelines:
 - Keep every response concise (1–3 sentences), warm, natural, and deeply appreciative.
 - Introduce yourself and TAHS’s mission only in the very first message.
 - Conduct all conversations by default in Traditional Chinese (繁體中文).
-- Use search tools only when needed for accurate historical context about Taiwan or Taiwanese American history.
+- Use the Wikipedia tool when needed for accurate historical context about Taiwan or Taiwanese American history.
 
 Re-engagement After Inactivity:
 - When the user returns after a pause, warmly acknowledge the time passed and reference something specific they shared earlier.
@@ -206,11 +205,11 @@ Memory & Tone:
     # Add user message
     history.append(HumanMessage(content=user_message))
 
-    # Define prompt and chain with tools
+    # Define prompt and chain with Wikipedia tool only
     prompt = ChatPromptTemplate.from_messages([
         MessagesPlaceholder(variable_name="history"),
     ])
-    chain = prompt | llm.bind_tools([search_tool, wikipedia_tool], tool_choice="auto")
+    chain = prompt | llm.bind_tools([wikipedia_tool], tool_choice="auto")
 
     try:
         # Async invoke with timeout
@@ -221,24 +220,19 @@ Memory & Tone:
 
         bot_reply = response.content
 
-        # Handle tool calls if any
+        # Handle Wikipedia tool calls
         if response.tool_calls:
             for tool_call in response.tool_calls:
-                tool_name = tool_call["name"].lower()
-                query = tool_call["args"].get("query", "")
-                try:
-                    if tool_name == "duckduckgo_search":
-                        result = search_tool.run(query)
-                        short_result = result[:500] + "..." if len(result) > 500 else result
-                        tool_reply = f"根據網路搜尋：{short_result}\n\n這與您的故事有什麼聯繫嗎？"
-                    elif tool_name == "wikipedia_query_run":
+                if tool_call["name"].lower() == "wikipedia_query_run":
+                    query = tool_call["args"].get("query", "")
+                    try:
                         result = wikipedia_tool.run(query)
                         short_result = result[:500] + "..." if len(result) > 500 else result
                         tool_reply = f"根據維基百科：{short_result}\n\n這對您的家族經歷有什麼相關之處呢？"
-                    history.append(AIMessage(content=tool_reply))
-                    bot_reply = tool_reply
-                except Exception as e:
-                    print(f"{tool_name} tool error:", str(e))
+                        history.append(AIMessage(content=tool_reply))
+                        bot_reply = tool_reply
+                    except Exception as e:
+                        print("Wikipedia tool error:", str(e))
 
         # Save bot reply to history
         history.append(AIMessage(content=bot_reply))
@@ -247,49 +241,3 @@ Memory & Tone:
         timestamp = current_time.strftime("%Y-%m-%d %H:%M:%S")
         profile = user_profiles[user_id]
 
-        row_data = [
-            timestamp,
-            user_id,
-            "User",
-            user_message,
-            "",
-            profile.get("display_name", "Unknown"),
-            profile.get("username", ""),
-            profile.get("picture_url", ""),
-            profile.get("first_interaction", ""),
-            profile.get("total_messages", 0),
-            profile.get("language_preference", "繁體中文")
-        ]
-
-        bot_row_data = row_data.copy()
-        bot_row_data[2] = "Bot"
-        bot_row_data[3] = bot_reply
-        bot_row_data[4] = "TAHS Interview"
-
-        try:
-            sheet.append_row(row_data)
-        except Exception as e:
-            print("Sheets error (user row):", str(e))
-
-        try:
-            sheet.append_row(bot_row_data)
-        except Exception as e:
-            print("Sheets error (bot row):", str(e))
-
-        # === Save Persistent Memory ===
-        save_memory()
-
-        return bot_reply
-
-    except asyncio.TimeoutError:
-        timeout_reply = "感謝您的耐心等待——我在這裡。請繼續分享您的故事。"
-        history.append(AIMessage(content=timeout_reply))
-        save_memory()
-        return timeout_reply
-
-    except Exception as e:
-        print("Agent error:", str(e))
-        fallback = "我在傾聽。請隨時分享您的故事。"
-        history.append(AIMessage(content=fallback))
-        save_memory()
-        return fallback
