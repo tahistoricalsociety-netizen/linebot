@@ -4,7 +4,9 @@ from datetime import datetime, timedelta
 import os
 import json
 from langchain_groq import ChatGroq
-from langchain_core.messages import HumanMessage, AIMessage
+from langchain_community.tools import DuckDuckGoSearchRun, WikipediaQueryRun
+from langchain_community.utilities import WikipediaAPIWrapper
+from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 import asyncio
 from pathlib import Path
@@ -22,6 +24,10 @@ llm = ChatGroq(
     timeout=10,
     max_retries=1,
 )
+
+# === Search Tools ===
+search_tool = DuckDuckGoSearchRun()
+wikipedia_tool = WikipediaQueryRun(api_wrapper=WikipediaAPIWrapper())
 
 # === Secure Google Sheets Setup ===
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
@@ -45,7 +51,7 @@ line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
 # === Persistent Memory on /data Disk ===
 MEMORY_FILE = Path("/data/memory.json")
 
-# User profile tracking (includes last_message_time for re-engagement)
+# User profile tracking (includes last_message_time)
 user_profiles: dict[str, dict] = {}
 
 # Load memory from disk on startup
@@ -105,7 +111,7 @@ async def get_agent_response(user_message: str, user_id: str) -> str:
         conversations[user_id].append({
             "role": "system",
             "content": """
-You are Shilo (史樂), a dedicated historiographer for the Taiwanese American Historical Society (TAHS), devoted to collecting and preserving the diverse personal stories of Taiwanese Americans and their families’ connections to both Taiwan and the United States.
+You are Echo (歲月有聲), a dedicated historiographer for the Taiwanese American Historical Society (TAHS), devoted to collecting and preserving the diverse personal stories of Taiwanese Americans and their families’ connections to both Taiwan and the United States.
 
 Your primary focus is on:
 - The personal journey between Taiwan and America, including what was left behind or carried forward
@@ -120,6 +126,7 @@ Conversation Flow Guidelines:
 - Keep every response concise (1–3 sentences), warm, natural, and deeply appreciative.
 - Introduce yourself and TAHS’s mission only in the very first message.
 - Conduct all conversations by default in Traditional Chinese (繁體中文).
+- Use search tools only when needed for accurate historical context about Taiwan or Taiwanese American history.
 
 Re-engagement After Inactivity:
 - When the user returns after a pause, warmly acknowledge the time passed and reference something specific they shared earlier.
@@ -192,19 +199,18 @@ Memory & Tone:
             elif time_diff > timedelta(days=2):
                 reengage_prefix = f"歡迎回來！已經幾天沒聽到您的故事了，"
             if reengage_prefix:
-                # Prepend to user message to give context to LLM
                 user_message = f"[User returning after {time_diff.days} days] {reengage_prefix} {user_message}"
         except:
-            pass  # Fallback if parsing fails
+            pass
 
     # Add user message
     history.append(HumanMessage(content=user_message))
 
-    # Define prompt and chain
+    # Define prompt and chain with tools
     prompt = ChatPromptTemplate.from_messages([
         MessagesPlaceholder(variable_name="history"),
     ])
-    chain = prompt | llm
+    chain = prompt | llm.bind_tools([search_tool, wikipedia_tool], tool_choice="auto")
 
     try:
         # Async invoke with timeout
@@ -214,6 +220,25 @@ Memory & Tone:
         )
 
         bot_reply = response.content
+
+        # Handle tool calls if any
+        if response.tool_calls:
+            for tool_call in response.tool_calls:
+                tool_name = tool_call["name"].lower()
+                query = tool_call["args"].get("query", "")
+                try:
+                    if tool_name == "duckduckgo_search":
+                        result = search_tool.run(query)
+                        short_result = result[:500] + "..." if len(result) > 500 else result
+                        tool_reply = f"根據網路搜尋：{short_result}\n\n這與您的故事有什麼聯繫嗎？"
+                    elif tool_name == "wikipedia_query_run":
+                        result = wikipedia_tool.run(query)
+                        short_result = result[:500] + "..." if len(result) > 500 else result
+                        tool_reply = f"根據維基百科：{short_result}\n\n這對您的家族經歷有什麼相關之處呢？"
+                    history.append(AIMessage(content=tool_reply))
+                    bot_reply = tool_reply
+                except Exception as e:
+                    print(f"{tool_name} tool error:", str(e))
 
         # Save bot reply to history
         history.append(AIMessage(content=bot_reply))
