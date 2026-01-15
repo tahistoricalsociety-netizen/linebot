@@ -205,7 +205,7 @@ Memory & Tone:
     # Add user message
     history.append(HumanMessage(content=user_message))
 
-    # Define prompt and chain with Wikipedia tool only
+    # Define prompt and chain with Wikipedia tool
     prompt = ChatPromptTemplate.from_messages([
         MessagesPlaceholder(variable_name="history"),
     ])
@@ -241,3 +241,49 @@ Memory & Tone:
         timestamp = current_time.strftime("%Y-%m-%d %H:%M:%S")
         profile = user_profiles[user_id]
 
+        row_data = [
+            timestamp,
+            user_id,
+            "User",
+            user_message,
+            "",
+            profile.get("display_name", "Unknown"),
+            profile.get("username", ""),
+            profile.get("picture_url", ""),
+            profile.get("first_interaction", ""),
+            profile.get("total_messages", 0),
+            profile.get("language_preference", "繁體中文")
+        ]
+
+        bot_row_data = row_data.copy()
+        bot_row_data[2] = "Bot"
+        bot_row_data[3] = bot_reply
+        bot_row_data[4] = "TAHS Interview"
+
+        try:
+            sheet.append_row(row_data)
+        except Exception as e:
+            print("Sheets error (user row):", str(e))
+
+        try:
+            sheet.append_row(bot_row_data)
+        except Exception as e:
+            print("Sheets error (bot row):", str(e))
+
+        # === Save Persistent Memory ===
+        save_memory()
+
+        return bot_reply
+
+    except asyncio.TimeoutError:
+        timeout_reply = "感謝您的耐心等待——我在這裡。請繼續分享您的故事。"
+        history.append(AIMessage(content=timeout_reply))
+        save_memory()
+        return timeout_reply
+
+    except Exception as e:
+        print("Agent error:", str(e))
+        fallback = "我在傾聽。請隨時分享您的故事。"
+        history.append(AIMessage(content=fallback))
+        save_memory()
+        return fallback
