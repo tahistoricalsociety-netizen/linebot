@@ -110,7 +110,7 @@ async def get_agent_response(user_message: str, user_id: str) -> str:
         conversations[user_id].append({
             "role": "system",
             "content": """
-You are Echo (歲月有聲), a dedicated historiographer for the Taiwanese American Historical Society (TAHS), devoted to collecting and preserving the diverse personal stories of Taiwanese Americans and their families’ connections to both Taiwan and the United States.
+Your name is Echo, chinese name is 歲月有聲, a dedicated historiographer for the Taiwanese American Historical Society (TAHS), devoted to collecting and preserving the diverse personal stories of Taiwanese Americans and their families’ connections to both Taiwan and the United States.
 
 Your primary focus is on:
 - The personal journey between Taiwan and America, including what was left behind or carried forward
@@ -141,4 +141,149 @@ Sharing the Bot:
 Photos & Documents:
 - If the user mentions sending photos, documents, or needing contact with TAHS staff, kindly explain that LINE cannot permanently save images or files.
 - Instruct them to email materials to tahistoricalsociety@gmail.com and to include their LINE ID in the email subject line for proper archiving.
-- Express
+- Express gratitude for their willingness to contribute visual or documentary materials.
+
+Memory & Tone:
+- Always remember and naturally reference prior details shared.
+- Never repeat information or summarize past messages.
+- Speak in a calm, respectful, and caring tone—like a trusted friend and archivist honoring treasured memories.
+"""
+        })
+
+        # Initialize user profile tracking with last_message_time
+        user_profiles[user_id] = {
+            "first_interaction": current_time.strftime("%Y-%m-%d %H:%M:%S"),
+            "last_message_time": current_time.isoformat(),
+            "total_messages": 0,
+            "language_preference": "繁體中文",
+            "display_name": "Fetching...",
+            "username": "",
+            "picture_url": ""
+        }
+
+    history = conversations[user_id]
+
+    # Update last message time and count
+    user_profiles[user_id]["last_message_time"] = current_time.isoformat()
+    user_profiles[user_id]["total_messages"] = user_profiles[user_id].get("total_messages", 0) + 1
+
+    # Fetch LINE profile (only once)
+    if user_profiles[user_id]["display_name"] == "Fetching...":
+        try:
+            profile = line_bot_api.get_profile(user_id)
+            user_profiles[user_id].update({
+                "display_name": profile.display_name,
+                "username": getattr(profile, "username", ""),
+                "picture_url": profile.picture_url or ""
+            })
+        except Exception as e:
+            print("Failed to fetch LINE profile:", str(e))
+            user_profiles[user_id].update({
+                "display_name": "Unknown",
+                "username": "",
+                "picture_url": ""
+            })
+
+    # === Check for long absence and add warm re-engagement ===
+    last_time_str = user_profiles[user_id].get("last_message_time")
+    reengage_prefix = ""
+    if last_time_str:
+        try:
+            last_time = datetime.fromisoformat(last_time_str)
+            time_diff = current_time - last_time
+            if time_diff > timedelta(days=30):
+                reengage_prefix = f"已經一個多月沒聽到您的故事了！上次您提到"
+            elif time_diff > timedelta(days=7):
+                reengage_prefix = f"已經一星期多了——我還在想您上次分享的"
+            elif time_diff > timedelta(days=2):
+                reengage_prefix = f"歡迎回來！已經幾天沒聽到您的故事了，"
+            if reengage_prefix:
+                user_message = f"[User returning after {time_diff.days} days] {reengage_prefix} {user_message}"
+        except:
+            pass
+
+    # Add user message
+    history.append(HumanMessage(content=user_message))
+
+    # Define prompt and chain with Wikipedia tool
+    prompt = ChatPromptTemplate.from_messages([
+        MessagesPlaceholder(variable_name="history"),
+    ])
+    chain = prompt | llm.bind_tools([wikipedia_tool], tool_choice="auto")
+
+    try:
+        # Async invoke with timeout
+        response = await asyncio.wait_for(
+            chain.ainvoke({"history": history}),
+            timeout=12.0
+        )
+
+        bot_reply = response.content
+
+        # Handle Wikipedia tool calls
+        if response.tool_calls:
+            for tool_call in response.tool_calls:
+                if tool_call["name"].lower() == "wikipedia_query_run":
+                    query = tool_call["args"].get("query", "")
+                    try:
+                        result = wikipedia_tool.run(query)
+                        short_result = result[:500] + "..." if len(result) > 500 else result
+                        tool_reply = f"根據維基百科：{short_result}\n\n這對您的家族經歷有什麼相關之處呢？"
+                        history.append(AIMessage(content=tool_reply))
+                        bot_reply = tool_reply
+                    except Exception as e:
+                        print("Wikipedia tool error:", str(e))
+
+        # Save bot reply to history
+        history.append(AIMessage(content=bot_reply))
+
+        # === Record to Google Sheets with Enriched Columns ===
+        timestamp = current_time.strftime("%Y-%m-%d %H:%M:%S")
+        profile = user_profiles[user_id]
+
+        row_data = [
+            timestamp,
+            user_id,
+            "User",
+            user_message,
+            "",
+            profile.get("display_name", "Unknown"),
+            profile.get("username", ""),
+            profile.get("picture_url", ""),
+            profile.get("first_interaction", ""),
+            profile.get("total_messages", 0),
+            profile.get("language_preference", "繁體中文")
+        ]
+
+        bot_row_data = row_data.copy()
+        bot_row_data[2] = "Bot"
+        bot_row_data[3] = bot_reply
+        bot_row_data[4] = "TAHS Interview"
+
+        try:
+            sheet.append_row(row_data)
+        except Exception as e:
+            print("Sheets error (user row):", str(e))
+
+        try:
+            sheet.append_row(bot_row_data)
+        except Exception as e:
+            print("Sheets error (bot row):", str(e))
+
+        # === Save Persistent Memory ===
+        save_memory()
+
+        return bot_reply
+
+    except asyncio.TimeoutError:
+        timeout_reply = "感謝您的耐心等待——我在這裡。請繼續分享您的故事。"
+        history.append(AIMessage(content=timeout_reply))
+        save_memory()
+        return timeout_reply
+
+    except Exception as e:
+        print("Agent error:", str(e))
+        fallback = "我在傾聽。請隨時分享您的故事。"
+        history.append(AIMessage(content=fallback))
+        save_memory()
+        return fallback
