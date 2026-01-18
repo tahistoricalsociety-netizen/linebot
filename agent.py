@@ -141,6 +141,12 @@ async def get_agent_response(user_message: str, user_id: str, is_voice: bool = F
     if is_voice:
         transcribed = await transcribe_audio(message_id)
         user_message = f"[Voice message transcribed]: {transcribed}"
+        print(f"DEBUG: Voice transcribed → {user_message}")  # ← Add this
+    else:
+        print(f"DEBUG: Text message → {user_message}")
+
+    # ... later, before sheet.append_row(row_data)
+    print(f"DEBUG: Attempting to append user row: {row_data}")
 
     # Initialize new conversation
     if user_id not in conversations:

@@ -4,7 +4,7 @@ import os
 import asyncio
 import traceback
 import aiohttp
-from pathlib import Path #Add this line
+from pathlib import Path  # ← This fixes "Path not defined"
 from fastapi import FastAPI, Request, HTTPException
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
@@ -23,8 +23,8 @@ if not CHANNEL_SECRET or not CHANNEL_ACCESS_TOKEN:
 line_bot_api = LineBotApi(CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(CHANNEL_SECRET)
 
-# Load Whisper model once at startup (small = fast & accurate for Hokkien/Mandarin)
-whisper_model = WhisperModel("small", device="cpu", compute_type="int8")
+# Load Whisper model once at startup (medium = excellent for Mandarin)
+whisper_model = WhisperModel("medium", device="cpu", compute_type="int8")
 
 async def transcribe_audio(message_id: str) -> str:
     """Download LINE voice message and transcribe using Whisper"""
@@ -39,24 +39,23 @@ async def transcribe_audio(message_id: str) -> str:
                     return "無法下載語音訊息，請稍後再試。"
                 audio_data = await resp.read()
 
-        # Save temporarily to disk
+        # Temporary file
         temp_file = Path("/tmp/voice_message.m4a")
         with open(temp_file, "wb") as f:
             f.write(audio_data)
 
-        # Transcribe (Whisper auto-detects language, good for Hokkien/Mandarin mix)
+        # Transcribe (Mandarin focus)
         segments, _ = await asyncio.to_thread(
             whisper_model.transcribe,
             str(temp_file),
-            language="zh",  # Force Chinese/Hokkien detection
+            language="zh",  # Force Mandarin detection
             vad_filter=True
         )
 
         transcribed = " ".join(segment.text for segment in segments).strip()
+        temp_file.unlink()  # Cleanup
 
-        # Clean up
-        temp_file.unlink()
-
+        print(f"DEBUG: Transcription successful: {transcribed[:200]}{'...' if len(transcribed) > 200 else ''}")
         return transcribed if transcribed else "語音內容空白，請再試一次。"
 
     except Exception as e:
@@ -96,7 +95,9 @@ def handle_message(event):
             print("Voice message detected, transcribing...")
             transcribed = asyncio.run(transcribe_audio(event.message.id))
             print(f"Transcribed: {transcribed[:200]}{'...' if len(transcribed) > 200 else ''}")
-            reply_text = f"已收到您的語音訊息！轉錄文字如下：\n\n{transcribed}\n\n現在請繼續分享您的故事～"
+            # Feed transcription to Echo as user input
+            reply_text = asyncio.run(get_agent_response(transcribed, user_id, is_voice=True, message_id=event.message.id))
+            reply_text = f"已收到您的語音訊息！轉錄文字如下：\n\n{transcribed}\n\n{reply_text}"
         else:
             # Normal text message
             user_message = event.message.text
