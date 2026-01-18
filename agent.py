@@ -113,25 +113,23 @@ async def transcribe_audio(message_id: str) -> str:
                     return "無法下載語音訊息，請稍後再試。"
                 audio_data = await resp.read()
 
-        # Save temporarily
+        # Temporary file
         temp_file = Path("/tmp/voice_message.m4a")
         with open(temp_file, "wb") as f:
             f.write(audio_data)
 
-        # Transcribe (Whisper handles Hokkien/Mandarin mix)
-        segments, info = await asyncio.to_thread(
+        # Transcribe
+        segments, _ = await asyncio.to_thread(
             whisper_model.transcribe,
             str(temp_file),
-            language="zh",  # Auto-detect Chinese/Hokkien
+            language="zh",  # Chinese/Hokkien mix
             vad_filter=True
         )
 
-        transcribed = " ".join(segment.text for segment in segments).strip()
+        text = " ".join(segment.text for segment in segments).strip()
+        temp_file.unlink()  # Cleanup
 
-        # Cleanup
-        temp_file.unlink()
-
-        return transcribed if transcribed else "語音內容空白，請再試一次。"
+        return text if text else "語音內容空白，請再試一次。"
 
     except Exception as e:
         print("Transcription error:", str(e))
