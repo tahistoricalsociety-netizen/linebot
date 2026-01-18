@@ -128,6 +128,7 @@ async def transcribe_audio(message_id: str) -> str:
         text = " ".join(segment.text for segment in segments).strip()
         temp_file.unlink()
 
+        print(f"DEBUG: Transcription successful: {text}")
         return text if text else "語音內容空白，請再試一次。"
 
     except Exception as e:
@@ -136,17 +137,13 @@ async def transcribe_audio(message_id: str) -> str:
 
 async def get_agent_response(user_message: str, user_id: str, is_voice: bool = False, message_id: str = None) -> str:
     current_time = datetime.now()
+    timestamp = current_time.strftime("%Y-%m-%d %H:%M:%S")
 
     # Handle voice message transcription first
     if is_voice:
         transcribed = await transcribe_audio(message_id)
         user_message = f"[Voice message transcribed]: {transcribed}"
-        print(f"DEBUG: Voice transcribed → {user_message}")  # ← Add this
-    else:
-        print(f"DEBUG: Text message → {user_message}")
-
-    # ... later, before sheet.append_row(row_data)
-    print(f"DEBUG: Attempting to append user row: {row_data}")
+        print(f"DEBUG: Voice transcribed → {user_message}")  # Debug print
 
     # Initialize new conversation
     if user_id not in conversations:
@@ -290,6 +287,9 @@ Memory & Tone:
             profile.get("language_preference", "繁體中文")
         ]
 
+        # Debug print AFTER row_data is defined
+        print(f"DEBUG: Attempting to append user row: {row_data}")
+
         # Bot reply row
         bot_row_data = row_data.copy()
         bot_row_data[2] = "Bot"
@@ -298,11 +298,13 @@ Memory & Tone:
 
         try:
             sheet.append_row(row_data)
+            print("DEBUG: User row appended successfully")
         except Exception as e:
             print("Sheets error (user row):", str(e))
 
         try:
             sheet.append_row(bot_row_data)
+            print("DEBUG: Bot row appended successfully")
         except Exception as e:
             print("Sheets error (bot row):", str(e))
 
