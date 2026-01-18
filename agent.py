@@ -4,14 +4,13 @@ from datetime import datetime, timedelta
 import os
 import json
 import aiohttp
+from pathlib import Path  # ← This import was missing or not visible
 from faster_whisper import WhisperModel
 from langchain_groq import ChatGroq
 from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 import asyncio
-from pathlib import Path
 from linebot import LineBotApi
-from linebot.models import MessageEvent, TextMessage, AudioMessage, TextSendMessage
 
 # === Secure Groq Setup ===
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
@@ -26,7 +25,7 @@ llm = ChatGroq(
 )
 
 # === Whisper Model (load once at startup) ===
-whisper_model = WhisperModel("small", device="cpu", compute_type="int8")  # small = fast & accurate for Hokkien/Mandarin
+whisper_model = WhisperModel("small", device="cpu", compute_type="int8")
 
 # === Secure Google Sheets Setup ===
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
