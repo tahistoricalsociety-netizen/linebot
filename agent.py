@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 import os
 import json
 import aiohttp
-from pathlib import Path  # ← This import was missing or not visible
+from pathlib import Path
 from faster_whisper import WhisperModel
 from langchain_groq import ChatGroq
 from langchain_core.messages import HumanMessage, AIMessage
@@ -24,9 +24,8 @@ llm = ChatGroq(
     max_retries=1,
 )
 
-# === Whisper Model (load once at startup) ===
-#whisper_model = WhisperModel("large-v3", device="cpu", compute_type="int8")
-whisper_model = WhisperModel("sandy1990418/ChineseTaiwaneseWhisper-medium", device="cpu", compute_type="int8")
+# === Whisper Model (medium - excellent for Mandarin) ===
+whisper_model = WhisperModel("medium", device="cpu", compute_type="int8")
 
 # === Secure Google Sheets Setup ===
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
@@ -101,7 +100,7 @@ def save_memory():
         print("Failed to save memory to disk:", str(e))
 
 async def transcribe_audio(message_id: str) -> str:
-    """Download LINE voice message and transcribe using Whisper"""
+    """Download LINE voice message and transcribe using Whisper medium model (Mandarin focus)"""
     try:
         audio_url = f"https://api-data.line.me/v2/bot/message/{message_id}/content"
         async with aiohttp.ClientSession() as session:
@@ -118,16 +117,16 @@ async def transcribe_audio(message_id: str) -> str:
         with open(temp_file, "wb") as f:
             f.write(audio_data)
 
-        # Transcribe
+        # Transcribe (Mandarin focus)
         segments, _ = await asyncio.to_thread(
             whisper_model.transcribe,
             str(temp_file),
-            language="zh",  # Chinese/Hokkien mix
+            language="zh",  # Force Mandarin detection
             vad_filter=True
         )
 
         text = " ".join(segment.text for segment in segments).strip()
-        temp_file.unlink()  # Cleanup
+        temp_file.unlink()
 
         return text if text else "語音內容空白，請再試一次。"
 
@@ -165,7 +164,6 @@ Conversation Flow Guidelines:
 - Introduce yourself and TAHS’s mission only in the very first message.
 - Respond in the language the user is currently using (English if they ask for it, Traditional Chinese otherwise).
 - If the user says "English please" or similar, immediately switch to English and stay in English for the rest of the conversation.
-- When users speak in Taiwanese Hokkien (臺語), try to transcribe as accurately as possible and note any uncertainty. You may ask for clarification if needed.
 
 Re-engagement After Inactivity:
 - When the user returns after a pause, warmly acknowledge the time passed and reference something specific they shared earlier.
