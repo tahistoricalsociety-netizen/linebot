@@ -25,7 +25,8 @@ llm = ChatGroq(
 )
 
 # === Whisper Model (load once at startup) ===
-whisper_model = WhisperModel("large-v3", device="cpu", compute_type="int8")
+#whisper_model = WhisperModel("large-v3", device="cpu", compute_type="int8")
+whisper_model = WhisperModel("sandy1990418/ChineseTaiwaneseWhisper-medium", device="cpu", compute_type="int8")
 
 # === Secure Google Sheets Setup ===
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
