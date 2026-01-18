@@ -240,7 +240,7 @@ Memory & Tone:
         except:
             pass
 
-    # Add transcribed or original message
+    # Add transcribed or original message to history
     history.append(HumanMessage(content=user_message))
 
     # Define prompt and chain (no tools)
@@ -269,12 +269,13 @@ Memory & Tone:
         timestamp = current_time.strftime("%Y-%m-%d %H:%M:%S")
         profile = user_profiles[user_id]
 
+        # User/transcribed row
         row_data = [
             timestamp,
             user_id,
-            "User",
+            "User" if not is_voice else "Voice (transcribed)",
             user_message,
-            "",
+            "[Voice]" if is_voice else "",
             profile.get("display_name", "Unknown"),
             profile.get("username", ""),
             profile.get("picture_url", ""),
@@ -283,6 +284,7 @@ Memory & Tone:
             profile.get("language_preference", "繁體中文")
         ]
 
+        # Bot reply row
         bot_row_data = row_data.copy()
         bot_row_data[2] = "Bot"
         bot_row_data[3] = bot_reply
