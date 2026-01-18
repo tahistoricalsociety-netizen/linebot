@@ -4,12 +4,18 @@ import os
 import asyncio
 import traceback
 import aiohttp
-from pathlib import Path  # ← This fixes "Path not defined"
+from pathlib import Path
 from fastapi import FastAPI, Request, HTTPException
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
-from linebot.models import MessageEvent, TextMessage, AudioMessage, TextSendMessage
-from agent import get_agent_response  # Your async agent function
+from linebot.models import (
+    MessageEvent,
+    TextMessage,
+    AudioMessage,
+    ImageMessage,  # ← Added for photo detection
+    TextSendMessage
+)
+from agent import get_agent_response, transcribe_audio  # Your agent functions
 from faster_whisper import WhisperModel
 
 app = FastAPI()
@@ -82,7 +88,7 @@ async def webhook(request: Request):
         traceback.print_exc()
     return "OK"
 
-@handler.add(MessageEvent, message=(TextMessage, AudioMessage))
+@handler.add(MessageEvent, message=(TextMessage, AudioMessage, ImageMessage))
 def handle_message(event):
     user_id = event.source.user_id
     reply_token = event.reply_token
@@ -90,12 +96,21 @@ def handle_message(event):
     print(f"\n=== New message from {user_id} ===")
 
     try:
-        if isinstance(event.message, AudioMessage):
+        if isinstance(event.message, ImageMessage):
+            # Photo detected — send standard reply
+            print("Image/photo message detected")
+            reply_text = (
+                "謝謝您分享照片！LINE無法永久保存圖片或檔案。\n"
+                "如果照片與您的家族故事相關，請將它們發送到 tahistoricalsociety@gmail.com，"
+                "並在郵件主題寫上您的 LINE ID（例如：您的LINE ID - 家族照片），我們會妥善歸檔並連結到您的故事。\n"
+                "非常感謝您的貢獻——這些珍貴影像會成為臺灣美國歷史的重要一部分！"
+                "您願意繼續分享照片背後的故事嗎？"
+            )
+        elif isinstance(event.message, AudioMessage):
             # Voice message → transcribe first
             print("Voice message detected, transcribing...")
             transcribed = asyncio.run(transcribe_audio(event.message.id))
             print(f"Transcribed: {transcribed[:200]}{'...' if len(transcribed) > 200 else ''}")
-            # Feed transcription to Echo as user input
             reply_text = asyncio.run(get_agent_response(transcribed, user_id, is_voice=True, message_id=event.message.id))
             reply_text = f"已收到您的語音訊息！轉錄文字如下：\n\n{transcribed}\n\n{reply_text}"
         else:
