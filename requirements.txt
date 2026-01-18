@@ -8,3 +8,5 @@ langchain-core
 gspread
 google-auth
 nest_asyncio
+faster-whisper  # ← Best for Render (CPU, fast, accurate)
+aiohttp # for async download

@@ -3,18 +3,20 @@ from google.oauth2.service_account import Credentials
 from datetime import datetime, timedelta
 import os
 import json
+import aiohttp
+from faster_whisper import WhisperModel
 from langchain_groq import ChatGroq
 from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 import asyncio
 from pathlib import Path
 from linebot import LineBotApi
+from linebot.models import MessageEvent, TextMessage, AudioMessage, TextSendMessage
 
 # === Secure Groq Setup ===
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 if not GROQ_API_KEY:
     raise ValueError("GROQ_API_KEY environment variable not set!")
-
 llm = ChatGroq(
     groq_api_key=GROQ_API_KEY,
     model_name="llama-3.3-70b-versatile",
@@ -23,12 +25,14 @@ llm = ChatGroq(
     max_retries=1,
 )
 
+# === Whisper Model (load once at startup) ===
+whisper_model = WhisperModel("small", device="cpu", compute_type="int8")  # small = fast & accurate for Hokkien/Mandarin
+
 # === Secure Google Sheets Setup ===
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 creds_json = os.getenv("GOOGLE_CREDENTIALS")
 if not creds_json:
     raise ValueError("GOOGLE_CREDENTIALS environment variable not set!")
-
 creds_info = json.loads(creds_json)
 creds = Credentials.from_service_account_info(creds_info, scopes=SCOPES)
 client = gspread.authorize(creds)
@@ -45,7 +49,7 @@ line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
 # === Persistent Memory on /data Disk ===
 MEMORY_FILE = Path("/data/memory.json")
 
-# User profile tracking (includes last_message_time for re-engagement)
+# User profile tracking
 user_profiles: dict[str, dict] = {}
 
 # Load memory from disk on startup
@@ -96,8 +100,50 @@ def save_memory():
     except Exception as e:
         print("Failed to save memory to disk:", str(e))
 
-async def get_agent_response(user_message: str, user_id: str) -> str:
+async def transcribe_audio(message_id: str) -> str:
+    """Download LINE voice message and transcribe using Whisper"""
+    try:
+        audio_url = f"https://api-data.line.me/v2/bot/message/{message_id}/content"
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                audio_url,
+                headers={"Authorization": f"Bearer {LINE_CHANNEL_ACCESS_TOKEN}"}
+            ) as resp:
+                if resp.status != 200:
+                    return "無法下載語音訊息，請稍後再試。"
+                audio_data = await resp.read()
+
+        # Save temporarily
+        temp_file = Path("/tmp/voice_message.m4a")
+        with open(temp_file, "wb") as f:
+            f.write(audio_data)
+
+        # Transcribe (Whisper handles Hokkien/Mandarin mix)
+        segments, info = await asyncio.to_thread(
+            whisper_model.transcribe,
+            str(temp_file),
+            language="zh",  # Auto-detect Chinese/Hokkien
+            vad_filter=True
+        )
+
+        transcribed = " ".join(segment.text for segment in segments).strip()
+
+        # Cleanup
+        temp_file.unlink()
+
+        return transcribed if transcribed else "語音內容空白，請再試一次。"
+
+    except Exception as e:
+        print("Transcription error:", str(e))
+        return "語音轉文字失敗，請用文字分享或再試一次。"
+
+async def get_agent_response(user_message: str, user_id: str, is_voice: bool = False, message_id: str = None) -> str:
     current_time = datetime.now()
+
+    # Handle voice message transcription first
+    if is_voice:
+        transcribed = await transcribe_audio(message_id)
+        user_message = f"[Voice message transcribed]: {transcribed}"
 
     # Initialize new conversation
     if user_id not in conversations:
@@ -193,15 +239,14 @@ Memory & Tone:
             elif time_diff > timedelta(days=2):
                 reengage_prefix = f"歡迎回來！已經幾天沒聽到您的故事了，"
             if reengage_prefix:
-                # Prepend to user message to give context to LLM
                 user_message = f"[User returning after {time_diff.days} days] {reengage_prefix} {user_message}"
         except:
-            pass  # Fallback if parsing fails
+            pass
 
-    # Add user message
+    # Add transcribed or original message
     history.append(HumanMessage(content=user_message))
 
-    # Define prompt and chain
+    # Define prompt and chain (no tools)
     prompt = ChatPromptTemplate.from_messages([
         MessagesPlaceholder(variable_name="history"),
     ])
@@ -214,12 +259,16 @@ Memory & Tone:
             timeout=12.0
         )
 
-        bot_reply = response.content
+        bot_reply = response.content or ""
+
+        # Ensure reply is never empty
+        if not bot_reply or bot_reply.strip() == "":
+            bot_reply = "我在這裡傾聽您的故事。如果有什麼想分享的，請繼續告訴我，好嗎？"
 
         # Save bot reply to history
         history.append(AIMessage(content=bot_reply))
 
-        # === Record to Google Sheets with Enriched Columns ===
+        # === Record to Google Sheets ===
         timestamp = current_time.strftime("%Y-%m-%d %H:%M:%S")
         profile = user_profiles[user_id]
 
