@@ -25,7 +25,8 @@ llm = ChatGroq(
 )
 
 # === Whisper Model (medium - excellent for Mandarin) ===
-whisper_model = WhisperModel("medium", device="cpu", compute_type="int8")
+#whisper_model = WhisperModel("medium", device="cpu", compute_type="int8")
+whisper_model = WhisperModel("openai/whisper-large-v3", device="cpu", compute_type="int8")
 
 # === Secure Google Sheets Setup ===
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
@@ -100,7 +101,7 @@ def save_memory():
         print("Failed to save memory to disk:", str(e))
 
 async def transcribe_audio(message_id: str) -> str:
-    """Download LINE voice message and transcribe using Whisper medium model (Mandarin focus)"""
+    """Download LINE voice message and transcribe using Whisper medium model"""
     try:
         audio_url = f"https://api-data.line.me/v2/bot/message/{message_id}/content"
         async with aiohttp.ClientSession() as session:
@@ -117,11 +118,12 @@ async def transcribe_audio(message_id: str) -> str:
         with open(temp_file, "wb") as f:
             f.write(audio_data)
 
-        # Transcribe (Mandarin focus)
+        # Transcribe with prompt bias toward Taiwanese Hokkien (臺語)
         segments, _ = await asyncio.to_thread(
             whisper_model.transcribe,
             str(temp_file),
-            language="zh",  # Force Mandarin detection
+            language="zh",                     # Base language detection (Mandarin/Chinese)
+            initial_prompt="這是臺灣話，請用臺語轉寫成文字",  # ← This improves Hokkien accuracy
             vad_filter=True
         )
 
@@ -130,6 +132,10 @@ async def transcribe_audio(message_id: str) -> str:
 
         print(f"DEBUG: Transcription successful: {text}")
         return text if text else "語音內容空白，請再試一次。"
+
+    except Exception as e:
+        print("Transcription error:", str(e))
+        return "語音轉文字失敗，請用文字分享或再試一次。"
 
     except Exception as e:
         print("Transcription error:", str(e))
