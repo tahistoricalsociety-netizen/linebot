@@ -24,9 +24,8 @@ llm = ChatGroq(
     max_retries=1,
 )
 
-# === Whisper Model (medium - excellent for Mandarin) ===
-#whisper_model = WhisperModel("medium", device="cpu", compute_type="int8")
-whisper_model = WhisperModel("openai/whisper-large-v3", device="cpu", compute_type="int8")
+# === Whisper Model (openai/whisper-large-v3 - latest large model, excellent for Mandarin) ===
+whisper_model = WhisperModel("openai/whisper-medium", device="cpu", compute_type="int8")
 
 # === Secure Google Sheets Setup ===
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
@@ -101,7 +100,7 @@ def save_memory():
         print("Failed to save memory to disk:", str(e))
 
 async def transcribe_audio(message_id: str) -> str:
-    """Download LINE voice message and transcribe using Whisper medium model"""
+    """Download LINE voice message and transcribe using openai/whisper-large-v3 (Mandarin focus + Hokkien bias)"""
     try:
         audio_url = f"https://api-data.line.me/v2/bot/message/{message_id}/content"
         async with aiohttp.ClientSession() as session:
@@ -113,6 +112,11 @@ async def transcribe_audio(message_id: str) -> str:
                     return "無法下載語音訊息，請稍後再試。"
                 audio_data = await resp.read()
 
+        # Generous length check + polite guidance
+        MAX_AUDIO_SIZE = 30 * 1024 * 1024  # 30 MB ≈ 10–12 minutes at typical LINE quality
+        if len(audio_data) > MAX_AUDIO_SIZE:
+            return "語音太長了（超過10分鐘），LINE一次最多支援較短的語音。請分段錄製或用文字分享，謝謝！這樣轉錄會更準確喔～"
+
         # Temporary file
         temp_file = Path("/tmp/voice_message.m4a")
         with open(temp_file, "wb") as f:
@@ -123,7 +127,7 @@ async def transcribe_audio(message_id: str) -> str:
             whisper_model.transcribe,
             str(temp_file),
             language="zh",                     # Base language detection (Mandarin/Chinese)
-            initial_prompt="這是臺灣話，請用臺語轉寫成文字",  # ← This improves Hokkien accuracy
+            initial_prompt="這是臺灣話，請用臺語轉寫成文字",  # ← Hokkien bias
             vad_filter=True
         )
 
@@ -132,10 +136,6 @@ async def transcribe_audio(message_id: str) -> str:
 
         print(f"DEBUG: Transcription successful: {text}")
         return text if text else "語音內容空白，請再試一次。"
-
-    except Exception as e:
-        print("Transcription error:", str(e))
-        return "語音轉文字失敗，請用文字分享或再試一次。"
 
     except Exception as e:
         print("Transcription error:", str(e))
@@ -189,7 +189,6 @@ Photos & Documents:
 - If the user sends photos, images, files, or mentions sharing them via LINE, kindly explain that LINE cannot permanently save media.
 - Respond with: "謝謝您分享照片！LINE無法永久保存圖片或檔案。若與您的故事相關，請將它們發送到 tahistoricalsociety@gmail.com，並在郵件主題寫上您的 LINE ID（例如：您的LINE ID - 家族照片），我們會妥善歸檔並連結到您的故事。非常感謝您的貢獻！您願意分享照片背後的故事嗎？"
 - Always express gratitude and gently invite them to share the story behind the materials.
-
 
 Memory & Tone:
 - Always remember and naturally reference prior details shared.
