@@ -11,7 +11,7 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 import asyncio
 from linebot import LineBotApi
 from deepgram import DeepgramClient
-from deepgram.clients.prerecorded import PrerecordedOptions  # ← Correct import for latest Deepgram SDK
+from deepgram.clients.prerecorded import PrerecordedOptions  # Correct import for latest Deepgram SDK
 
 # === Secure Groq Setup ===
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
@@ -103,9 +103,21 @@ def save_memory():
     except Exception as e:
         print("Failed to save memory to disk:", str(e))
 
+# === Deepgram Client for Transcription (cloud offload) ===
+from deepgram import DeepgramClient
+from deepgram.utils import verboselogs  # Optional: for better logging
+from deepgram.clients.prerecorded import PreRecordedOptions  # Correct name in v3.5+
+
+DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY")
+if not DEEPGRAM_API_KEY:
+    raise ValueError("DEEPGRAM_API_KEY environment variable not set!")
+
+deepgram = DeepgramClient(DEEPGRAM_API_KEY)
+
 async def transcribe_audio(message_id: str) -> str:
     """Download LINE voice message and transcribe using Deepgram cloud API"""
     try:
+        print("DEBUG: Starting Deepgram transcription...")
         audio_url = f"https://api-data.line.me/v2/bot/message/{message_id}/content"
         async with aiohttp.ClientSession() as session:
             async with session.get(
@@ -122,13 +134,14 @@ async def transcribe_audio(message_id: str) -> str:
             return "語音太長了（超過10分鐘），LINE一次最多支援較短的語音。請分段錄製或用文字分享，謝謝！這樣轉錄會更準確喔～"
 
         # Transcribe with Deepgram
-        options = PrerecordedOptions(
-            model="nova-2",  # Best general model
-            language="zh",   # Mandarin (handles Hokkien mix well)
+        options = PreRecordedOptions(
+            model="nova-2",
+            language="zh",
             smart_format=True,
-            diarize=True     # Separates speakers if needed
+            diarize=True
         )
 
+        print("DEBUG: Sending audio to Deepgram...")
         response = await asyncio.to_thread(
             deepgram.listen.prerecorded.v("1").transcribe_file,
             {"buffer": audio_data, "mimetype": "audio/m4a"},
@@ -141,6 +154,7 @@ async def transcribe_audio(message_id: str) -> str:
 
     except Exception as e:
         print("Transcription error:", str(e))
+        traceback.print_exc()
         return "語音轉文字失敗，請用文字分享或再試一次。"
 
 async def get_agent_response(user_message: str, user_id: str, is_voice: bool = False, message_id: str = None) -> str:
