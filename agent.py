@@ -5,13 +5,12 @@ import os
 import json
 import aiohttp
 from pathlib import Path
+from faster_whisper import WhisperModel
 from langchain_groq import ChatGroq
 from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 import asyncio
 from linebot import LineBotApi
-from deepgram import DeepgramClient
-from deepgram.clients.prerecorded import PrerecordedOptions  # Correct import for latest Deepgram SDK
 
 # === Secure Groq Setup ===
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
@@ -25,11 +24,8 @@ llm = ChatGroq(
     max_retries=1,
 )
 
-# === Deepgram Client for Transcription (cloud offload) ===
-DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY")
-if not DEEPGRAM_API_KEY:
-    raise ValueError("DEEPGRAM_API_KEY environment variable not set!")
-deepgram = DeepgramClient(DEEPGRAM_API_KEY)
+# === Whisper Model (openai/whisper-large-v3 - latest large model, excellent for Mandarin) ===
+whisper_model = WhisperModel("large", device="cpu", compute_type="int8")
 
 # === Secure Google Sheets Setup ===
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
@@ -103,21 +99,9 @@ def save_memory():
     except Exception as e:
         print("Failed to save memory to disk:", str(e))
 
-# === Deepgram Client for Transcription (cloud offload) ===
-from deepgram import DeepgramClient
-from deepgram.utils import verboselogs  # Optional: for better logging
-from deepgram.clients.prerecorded import PrerecordedOptions  # Correct name in v3.5+
-
-DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY")
-if not DEEPGRAM_API_KEY:
-    raise ValueError("DEEPGRAM_API_KEY environment variable not set!")
-
-deepgram = DeepgramClient(DEEPGRAM_API_KEY)
-
 async def transcribe_audio(message_id: str) -> str:
-    """Download LINE voice message and transcribe using Deepgram cloud API"""
+    """Download LINE voice message and transcribe using openai/whisper-large-v3 (Mandarin focus + Hokkien bias)"""
     try:
-        print("DEBUG: Starting Deepgram transcription...")
         audio_url = f"https://api-data.line.me/v2/bot/message/{message_id}/content"
         async with aiohttp.ClientSession() as session:
             async with session.get(
@@ -129,33 +113,32 @@ async def transcribe_audio(message_id: str) -> str:
                 audio_data = await resp.read()
 
         # Generous length check + polite guidance
-        MAX_AUDIO_SIZE = 30 * 1024 * 1024  # 30 MB ≈ 10–12 minutes
+        MAX_AUDIO_SIZE = 30 * 1024 * 1024  # 30 MB ≈ 10–12 minutes at typical LINE quality
         if len(audio_data) > MAX_AUDIO_SIZE:
             return "語音太長了（超過10分鐘），LINE一次最多支援較短的語音。請分段錄製或用文字分享，謝謝！這樣轉錄會更準確喔～"
 
-        # Transcribe with Deepgram
-        options = PrerecordedOptions(
-            model="nova-2-general",
-            language="cmn",
-            smart_format=True,
-            diarize=True
-            multi_channel = True # If stereo audio
+        # Temporary file
+        temp_file = Path("/tmp/voice_message.m4a")
+        with open(temp_file, "wb") as f:
+            f.write(audio_data)
+
+        # Transcribe with prompt bias toward Taiwanese Hokkien (臺語)
+        segments, _ = await asyncio.to_thread(
+            whisper_model.transcribe,
+            str(temp_file),
+            language="zh",                     # Base language detection (Mandarin/Chinese)
+            initial_prompt="這是臺灣話，請用臺語轉寫成文字",  # ← Hokkien bias
+            vad_filter=True
         )
 
-        print("DEBUG: Sending audio to Deepgram...")
-        response = await asyncio.to_thread(
-            deepgram.listen.prerecorded.v("1").transcribe_file,
-            {"buffer": audio_data, "mimetype": "audio/m4a"},
-            options
-        )
+        text = " ".join(segment.text for segment in segments).strip()
+        temp_file.unlink()
 
-        text = response["results"]["channels"][0]["alternatives"][0]["transcript"].strip()
-        print(f"DEBUG: Deepgram transcription successful: {text[:200]}{'...' if len(text) > 200 else ''}")
+        print(f"DEBUG: Transcription successful: {text}")
         return text if text else "語音內容空白，請再試一次。"
 
     except Exception as e:
         print("Transcription error:", str(e))
-        traceback.print_exc()
         return "語音轉文字失敗，請用文字分享或再試一次。"
 
 async def get_agent_response(user_message: str, user_id: str, is_voice: bool = False, message_id: str = None) -> str:
