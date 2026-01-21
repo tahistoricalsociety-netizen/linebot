@@ -24,12 +24,8 @@ llm = ChatGroq(
     max_retries=1,
 )
 
-# === Whisper Model for Taiwanese Hakka/Hokkien ===
-whisper_model = WhisperModel(
-    "formospeech/whisper-large-v3-taiwanese-hakka",
-    device="cpu",
-    compute_type="int8"
-)
+# === Whisper Model (medium - excellent for Mandarin) ===
+whisper_model = WhisperModel("medium", device="cpu", compute_type="int8")
 
 # === Secure Google Sheets Setup ===
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
@@ -104,7 +100,7 @@ def save_memory():
         print("Failed to save memory to disk:", str(e))
 
 async def transcribe_audio(message_id: str) -> str:
-    """Download LINE voice message and transcribe using formospeech model"""
+    """Download LINE voice message and transcribe using Whisper medium model (Mandarin focus)"""
     try:
         audio_url = f"https://api-data.line.me/v2/bot/message/{message_id}/content"
         async with aiohttp.ClientSession() as session:
@@ -121,22 +117,18 @@ async def transcribe_audio(message_id: str) -> str:
         with open(temp_file, "wb") as f:
             f.write(audio_data)
 
-        # Transcribe with dialect prompt
-        dialect_id = "htia_sixian"  # Sixian Hakka - best match for common Taiwanese Hokkien
+        # Transcribe (Mandarin focus)
         segments, _ = await asyncio.to_thread(
             whisper_model.transcribe,
             str(temp_file),
-            language="zh",
-            initial_prompt=f"這是臺灣話，請用臺語轉寫成文字 {dialect_id}",
+            language="zh",  # Force Mandarin detection
             vad_filter=True
         )
 
         text = " ".join(segment.text for segment in segments).strip()
-        text = text.replace(f" {dialect_id}", "")  # Clean dialect ID tag
+        temp_file.unlink()
 
-        temp_file.unlink()  # Cleanup
-
-        print(f"DEBUG: Transcription successful: {text[:200]}{'...' if len(text) > 200 else ''}")
+        print(f"DEBUG: Transcription successful: {text}")
         return text if text else "語音內容空白，請再試一次。"
 
     except Exception as e:
@@ -191,6 +183,7 @@ Photos & Documents:
 - If the user sends photos, images, files, or mentions sharing them via LINE, kindly explain that LINE cannot permanently save media.
 - Respond with: "謝謝您分享照片！LINE無法永久保存圖片或檔案。若與您的故事相關，請將它們發送到 tahistoricalsociety@gmail.com，並在郵件主題寫上您的 LINE ID（例如：您的LINE ID - 家族照片），我們會妥善歸檔並連結到您的故事。非常感謝您的貢獻！您願意分享照片背後的故事嗎？"
 - Always express gratitude and gently invite them to share the story behind the materials.
+
 
 Memory & Tone:
 - Always remember and naturally reference prior details shared.
