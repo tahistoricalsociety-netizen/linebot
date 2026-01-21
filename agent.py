@@ -10,7 +10,8 @@ from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 import asyncio
 from linebot import LineBotApi
-from deepgram import DeepgramClient, PrerecordedOptions
+from deepgram import DeepgramClient
+from deepgram.clients.prerecorded import PrerecordedOptions  # ← Correct import for latest Deepgram SDK
 
 # === Secure Groq Setup ===
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
@@ -129,8 +130,8 @@ async def transcribe_audio(message_id: str) -> str:
         )
 
         response = await asyncio.to_thread(
-            deepgram.listen.rest.v("1").transcribe_file,
-            {"buffer": audio_data},
+            deepgram.listen.prerecorded.v("1").transcribe_file,
+            {"buffer": audio_data, "mimetype": "audio/m4a"},
             options
         )
 
