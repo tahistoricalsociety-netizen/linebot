@@ -135,10 +135,11 @@ async def transcribe_audio(message_id: str) -> str:
 
         # Transcribe with Deepgram
         options = PrerecordedOptions(
-            model="nova-2",
-            language="zh",
+            model="nova-2-general",
+            language="cmn",
             smart_format=True,
             diarize=True
+            multi_channel = True # If stereo audio
         )
 
         print("DEBUG: Sending audio to Deepgram...")
