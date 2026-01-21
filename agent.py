@@ -106,7 +106,7 @@ def save_memory():
 # === Deepgram Client for Transcription (cloud offload) ===
 from deepgram import DeepgramClient
 from deepgram.utils import verboselogs  # Optional: for better logging
-from deepgram.clients.prerecorded import PreRecordedOptions  # Correct name in v3.5+
+from deepgram.clients.prerecorded import PrerecordedOptions  # Correct name in v3.5+
 
 DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY")
 if not DEEPGRAM_API_KEY:
@@ -134,7 +134,7 @@ async def transcribe_audio(message_id: str) -> str:
             return "語音太長了（超過10分鐘），LINE一次最多支援較短的語音。請分段錄製或用文字分享，謝謝！這樣轉錄會更準確喔～"
 
         # Transcribe with Deepgram
-        options = PreRecordedOptions(
+        options = PrerecordedOptions(
             model="nova-2",
             language="zh",
             smart_format=True,
