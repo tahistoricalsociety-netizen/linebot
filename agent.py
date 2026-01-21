@@ -24,8 +24,9 @@ llm = ChatGroq(
     max_retries=1,
 )
 
-# === Whisper Model (medium - excellent for Mandarin) ===
-whisper_model = WhisperModel("medium", device="cpu", compute_type="int8")
+# === Whisper Model (medium - excellent for Mandarin, testing sandy for Taiwanese) ===
+# whisper_model = WhisperModel("medium", device="cpu", compute_type="int8")
+whisper_model = WhisperModel("sandy1990418/ChineseTaiwaneseWhisper-medium", device="cpu", compute_type="int8")
 
 # === Secure Google Sheets Setup ===
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
