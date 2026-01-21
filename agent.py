@@ -5,12 +5,12 @@ import os
 import json
 import aiohttp
 from pathlib import Path
-from faster_whisper import WhisperModel
 from langchain_groq import ChatGroq
 from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 import asyncio
 from linebot import LineBotApi
+from deepgram import DeepgramClient, PrerecordedOptions
 
 # === Secure Groq Setup ===
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
@@ -24,8 +24,11 @@ llm = ChatGroq(
     max_retries=1,
 )
 
-# === Whisper Model (openai/whisper-large-v3 - latest large model, excellent for Mandarin) ===
-whisper_model = WhisperModel("large", device="cpu", compute_type="int8")
+# === Deepgram Client for Transcription (cloud offload) ===
+DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY")
+if not DEEPGRAM_API_KEY:
+    raise ValueError("DEEPGRAM_API_KEY environment variable not set!")
+deepgram = DeepgramClient(DEEPGRAM_API_KEY)
 
 # === Secure Google Sheets Setup ===
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
@@ -100,7 +103,7 @@ def save_memory():
         print("Failed to save memory to disk:", str(e))
 
 async def transcribe_audio(message_id: str) -> str:
-    """Download LINE voice message and transcribe using openai/whisper-large-v3 (Mandarin focus + Hokkien bias)"""
+    """Download LINE voice message and transcribe using Deepgram cloud API"""
     try:
         audio_url = f"https://api-data.line.me/v2/bot/message/{message_id}/content"
         async with aiohttp.ClientSession() as session:
@@ -113,28 +116,26 @@ async def transcribe_audio(message_id: str) -> str:
                 audio_data = await resp.read()
 
         # Generous length check + polite guidance
-        MAX_AUDIO_SIZE = 30 * 1024 * 1024  # 30 MB ≈ 10–12 minutes at typical LINE quality
+        MAX_AUDIO_SIZE = 30 * 1024 * 1024  # 30 MB ≈ 10–12 minutes
         if len(audio_data) > MAX_AUDIO_SIZE:
             return "語音太長了（超過10分鐘），LINE一次最多支援較短的語音。請分段錄製或用文字分享，謝謝！這樣轉錄會更準確喔～"
 
-        # Temporary file
-        temp_file = Path("/tmp/voice_message.m4a")
-        with open(temp_file, "wb") as f:
-            f.write(audio_data)
-
-        # Transcribe with prompt bias toward Taiwanese Hokkien (臺語)
-        segments, _ = await asyncio.to_thread(
-            whisper_model.transcribe,
-            str(temp_file),
-            language="zh",                     # Base language detection (Mandarin/Chinese)
-            initial_prompt="這是臺灣話，請用臺語轉寫成文字",  # ← Hokkien bias
-            vad_filter=True
+        # Transcribe with Deepgram
+        options = PrerecordedOptions(
+            model="nova-2",  # Best general model
+            language="zh",   # Mandarin (handles Hokkien mix well)
+            smart_format=True,
+            diarize=True     # Separates speakers if needed
         )
 
-        text = " ".join(segment.text for segment in segments).strip()
-        temp_file.unlink()
+        response = await asyncio.to_thread(
+            deepgram.listen.rest.v("1").transcribe_file,
+            {"buffer": audio_data},
+            options
+        )
 
-        print(f"DEBUG: Transcription successful: {text}")
+        text = response["results"]["channels"][0]["alternatives"][0]["transcript"].strip()
+        print(f"DEBUG: Deepgram transcription successful: {text[:200]}{'...' if len(text) > 200 else ''}")
         return text if text else "語音內容空白，請再試一次。"
 
     except Exception as e:
