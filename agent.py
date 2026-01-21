@@ -25,7 +25,7 @@ llm = ChatGroq(
 )
 
 # === Whisper Model (openai/whisper-large-v3 - latest large model, excellent for Mandarin) ===
-whisper_model = WhisperModel("medium", device="cpu", compute_type="int8")
+whisper_model = WhisperModel("large", device="cpu", compute_type="int8")
 
 # === Secure Google Sheets Setup ===
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
