@@ -23,7 +23,7 @@ llm = ChatGroq(
     max_retries=1,
 )
 
-# === OpenAI Whisper API Key ===
+# === OpenAI API Key (for Whisper API) ===
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 if not OPENAI_API_KEY:
     raise ValueError("OPENAI_API_KEY environment variable not set!")
@@ -113,7 +113,7 @@ async def transcribe_audio(message_id: str) -> str:
                     return "無法下載語音訊息，請稍後再試。"
                 audio_data = await resp.read()
 
-        MAX_AUDIO_SIZE = 30 * 1024 * 1024  # 30 MB
+        MAX_AUDIO_SIZE = 30 * 1024 * 1024  # 30 MB ≈ 10–12 minutes
         if len(audio_data) > MAX_AUDIO_SIZE:
             return "語音太長了（超過10分鐘），請分段錄製或用文字分享，謝謝！"
 

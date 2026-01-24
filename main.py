@@ -12,11 +12,10 @@ from linebot.models import (
     MessageEvent,
     TextMessage,
     AudioMessage,
-    ImageMessage,  # ← Added for photo detection
+    ImageMessage,
     TextSendMessage
 )
 from agent import get_agent_response, transcribe_audio  # Your agent functions
-from faster_whisper import WhisperModel
 
 app = FastAPI()
 
@@ -28,45 +27,6 @@ if not CHANNEL_SECRET or not CHANNEL_ACCESS_TOKEN:
 
 line_bot_api = LineBotApi(CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(CHANNEL_SECRET)
-
-# Load Whisper model once at startup (medium = excellent for Mandarin)
-whisper_model = WhisperModel("medium", device="cpu", compute_type="int8")
-
-async def transcribe_audio(message_id: str) -> str:
-    """Download LINE voice message and transcribe using Whisper"""
-    try:
-        audio_url = f"https://api-data.line.me/v2/bot/message/{message_id}/content"
-        async with aiohttp.ClientSession() as session:
-            async with session.get(
-                audio_url,
-                headers={"Authorization": f"Bearer {CHANNEL_ACCESS_TOKEN}"}
-            ) as resp:
-                if resp.status != 200:
-                    return "無法下載語音訊息，請稍後再試。"
-                audio_data = await resp.read()
-
-        # Temporary file
-        temp_file = Path("/tmp/voice_message.m4a")
-        with open(temp_file, "wb") as f:
-            f.write(audio_data)
-
-        # Transcribe (Mandarin focus)
-        segments, _ = await asyncio.to_thread(
-            whisper_model.transcribe,
-            str(temp_file),
-            language="zh",  # Force Mandarin detection
-            vad_filter=True
-        )
-
-        transcribed = " ".join(segment.text for segment in segments).strip()
-        temp_file.unlink()  # Cleanup
-
-        print(f"DEBUG: Transcription successful: {transcribed[:200]}{'...' if len(transcribed) > 200 else ''}")
-        return transcribed if transcribed else "語音內容空白，請再試一次。"
-
-    except Exception as e:
-        print("Transcription error:", str(e))
-        return "語音轉文字失敗，請用文字分享或再試一次。"
 
 @app.get("/")
 def root():
