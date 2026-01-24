@@ -15,7 +15,7 @@ from linebot.models import (
     ImageMessage,
     TextSendMessage
 )
-from agent import get_agent_response, transcribe_audio  # Your agent functions
+from agent import get_agent_response, transcribe_audio  # Ensure these exist in agent.py
 
 app = FastAPI()
 
