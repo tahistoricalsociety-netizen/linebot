@@ -10,8 +10,6 @@ from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 import asyncio
 from linebot import LineBotApi
-from subprocess import Popen, PIPE
-import tempfile
 
 # === Secure Groq Setup ===
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
@@ -24,6 +22,11 @@ llm = ChatGroq(
     timeout=10,
     max_retries=1,
 )
+
+# === OpenAI Whisper API Key ===
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+if not OPENAI_API_KEY:
+    raise ValueError("OPENAI_API_KEY environment variable not set!")
 
 # === Secure Google Sheets Setup ===
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
@@ -114,44 +117,20 @@ async def transcribe_audio(message_id: str) -> str:
         if len(audio_data) > MAX_AUDIO_SIZE:
             return "語音太長了（超過10分鐘），請分段錄製或用文字分享，謝謝！"
 
-        # Convert m4a → mp3 using FFmpeg
-        with tempfile.NamedTemporaryFile(suffix=".m4a", delete=False) as tmp_in:
-            tmp_in.write(audio_data)
-            tmp_in.flush()
-
-            with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp_out:
-                proc = Popen(
-                    ["ffmpeg", "-y", "-i", tmp_in.name, "-acodec", "libmp3lame", tmp_out.name],
-                    stdout=PIPE, stderr=PIPE
-                )
-                stdout, stderr = proc.communicate()
-                if proc.returncode != 0:
-                    raise Exception(f"FFmpeg error: {stderr.decode()}")
-
-                # Send mp3 to OpenAI Whisper API
-                async with aiohttp.ClientSession() as session:
-                    form = aiohttp.FormData()
-                    form.add_field("file", open(tmp_out.name, "rb"), filename="voice.mp3")
-                    form.add_field("model", "whisper-1")
-                    form.add_field("language", "zh")
-                    form.add_field("response_format", "text")
-
-                    async with session.post(
-                        "https://api.openai.com/v1/audio/transcriptions",
-                        headers={"Authorization": f"Bearer {os.getenv('OPENAI_API_KEY')}"},
-                        data=form
-                    ) as resp:
-                        if resp.status != 200:
-                            error_text = await resp.text()
-                            raise Exception(f"Whisper API error {resp.status}: {error_text}")
-                        text = await resp.text()
-
-        # Cleanup temp files
-        os.unlink(tmp_in.name)
-        os.unlink(tmp_out.name)
-
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                "https://api.openai.com/v1/audio/transcriptions",
+                data={"model": "whisper-1"},
+                headers={
+                    "Authorization": f"Bearer {os.getenv('OPENAI_API_KEY')}",
+                    "Content-Type": "multipart/form-data"
+                },
+                params={"language": "zh", "response_format": "text"}
+            ) as resp:
+                if resp.status != 200:
+                    raise Exception(f"Whisper API error {resp.status}: {await resp.text()}")
+                text = await resp.text()
         return text.strip() if text else "語音內容空白，請再試一次。"
-
     except Exception as e:
         print("Whisper error:", str(e))
         return "語音轉文字失敗，請用文字分享或再試一次。"
