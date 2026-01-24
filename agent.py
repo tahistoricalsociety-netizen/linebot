@@ -5,12 +5,13 @@ import os
 import json
 import aiohttp
 from pathlib import Path
-from faster_whisper import WhisperModel
 from langchain_groq import ChatGroq
 from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 import asyncio
 from linebot import LineBotApi
+from subprocess import Popen, PIPE
+import tempfile
 
 # === Secure Groq Setup ===
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
@@ -23,9 +24,6 @@ llm = ChatGroq(
     timeout=10,
     max_retries=1,
 )
-
-# === Whisper Model (openai/whisper-large-v3 - latest large model, excellent for Mandarin) ===
-whisper_model = WhisperModel("large", device="cpu", compute_type="int8")
 
 # === Secure Google Sheets Setup ===
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
@@ -100,7 +98,7 @@ def save_memory():
         print("Failed to save memory to disk:", str(e))
 
 async def transcribe_audio(message_id: str) -> str:
-    """Download LINE voice message and transcribe using openai/whisper-large-v3 (Mandarin focus + Hokkien bias)"""
+    """Download LINE voice message and transcribe using OpenAI Whisper API"""
     try:
         audio_url = f"https://api-data.line.me/v2/bot/message/{message_id}/content"
         async with aiohttp.ClientSession() as session:
@@ -112,33 +110,50 @@ async def transcribe_audio(message_id: str) -> str:
                     return "無法下載語音訊息，請稍後再試。"
                 audio_data = await resp.read()
 
-        # Generous length check + polite guidance
-        MAX_AUDIO_SIZE = 30 * 1024 * 1024  # 30 MB ≈ 10–12 minutes at typical LINE quality
+        MAX_AUDIO_SIZE = 30 * 1024 * 1024  # 30 MB
         if len(audio_data) > MAX_AUDIO_SIZE:
-            return "語音太長了（超過10分鐘），LINE一次最多支援較短的語音。請分段錄製或用文字分享，謝謝！這樣轉錄會更準確喔～"
+            return "語音太長了（超過10分鐘），請分段錄製或用文字分享，謝謝！"
 
-        # Temporary file
-        temp_file = Path("/tmp/voice_message.m4a")
-        with open(temp_file, "wb") as f:
-            f.write(audio_data)
+        # Convert m4a → mp3 using FFmpeg
+        with tempfile.NamedTemporaryFile(suffix=".m4a", delete=False) as tmp_in:
+            tmp_in.write(audio_data)
+            tmp_in.flush()
 
-        # Transcribe with prompt bias toward Taiwanese Hokkien (臺語)
-        segments, _ = await asyncio.to_thread(
-            whisper_model.transcribe,
-            str(temp_file),
-            language="zh",                     # Base language detection (Mandarin/Chinese)
-            initial_prompt="這是臺灣話，請用臺語轉寫成文字",  # ← Hokkien bias
-            vad_filter=True
-        )
+            with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp_out:
+                proc = Popen(
+                    ["ffmpeg", "-y", "-i", tmp_in.name, "-acodec", "libmp3lame", tmp_out.name],
+                    stdout=PIPE, stderr=PIPE
+                )
+                stdout, stderr = proc.communicate()
+                if proc.returncode != 0:
+                    raise Exception(f"FFmpeg error: {stderr.decode()}")
 
-        text = " ".join(segment.text for segment in segments).strip()
-        temp_file.unlink()
+                # Send mp3 to OpenAI Whisper API
+                async with aiohttp.ClientSession() as session:
+                    form = aiohttp.FormData()
+                    form.add_field("file", open(tmp_out.name, "rb"), filename="voice.mp3")
+                    form.add_field("model", "whisper-1")
+                    form.add_field("language", "zh")
+                    form.add_field("response_format", "text")
 
-        print(f"DEBUG: Transcription successful: {text}")
-        return text if text else "語音內容空白，請再試一次。"
+                    async with session.post(
+                        "https://api.openai.com/v1/audio/transcriptions",
+                        headers={"Authorization": f"Bearer {os.getenv('OPENAI_API_KEY')}"},
+                        data=form
+                    ) as resp:
+                        if resp.status != 200:
+                            error_text = await resp.text()
+                            raise Exception(f"Whisper API error {resp.status}: {error_text}")
+                        text = await resp.text()
+
+        # Cleanup temp files
+        os.unlink(tmp_in.name)
+        os.unlink(tmp_out.name)
+
+        return text.strip() if text else "語音內容空白，請再試一次。"
 
     except Exception as e:
-        print("Transcription error:", str(e))
+        print("Whisper error:", str(e))
         return "語音轉文字失敗，請用文字分享或再試一次。"
 
 async def get_agent_response(user_message: str, user_id: str, is_voice: bool = False, message_id: str = None) -> str:

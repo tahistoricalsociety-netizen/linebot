@@ -8,6 +8,4 @@ langchain-core
 gspread
 google-auth
 nest_asyncio
-faster-whisper  # ← Best for Render (CPU, fast, accurate)
 aiohttp # for async download
-deepgram-sdk==3.5.0 #Pin to known stable
