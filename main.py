@@ -15,7 +15,7 @@ from linebot.models import (
     ImageMessage,
     TextSendMessage
 )
-from agent import get_agent_response, transcribe_audio  # Ensure these exist in agent.py
+from agent import get_agent_response, transcribe_audio
 
 app = FastAPI()
 
@@ -52,12 +52,32 @@ async def webhook(request: Request):
 def handle_message(event):
     user_id = event.source.user_id
     reply_token = event.reply_token
+    group_id = getattr(event.source, 'group_id', None)  # None if 1:1
+    is_group = group_id is not None
 
-    print(f"\n=== New message from {user_id} ===")
+    print(f"\n=== New message from {user_id} (group: {group_id}) ===")
+
+    # Get message text if it's text
+    message_text = ""
+    if isinstance(event.message, TextMessage):
+        message_text = event.message.text.strip()
+
+    # Ignore ads, spam, or non-meaningful messages
+    if is_ad_or_spam(message_text):
+        print("Ignored: ad/spam/non-text message")
+        return
+
+    # Check if bot was @mentioned (only relevant in groups)
+    bot_mentioned = False
+    if is_group and message_text:
+        bot_name = line_bot_api.get_bot_info().display_name or "Echo"
+        bot_mentioned = f"@{bot_name}" in message_text or f"@{bot_name.lower()}" in message_text.lower()
+
+    # Decide whether to reply in group or private
+    reply_in_group = is_group and bot_mentioned
 
     try:
         if isinstance(event.message, ImageMessage):
-            # Photo detected — send standard reply
             print("Image/photo message detected")
             reply_text = (
                 "謝謝您分享照片！LINE無法永久保存圖片或檔案。\n"
@@ -67,19 +87,17 @@ def handle_message(event):
                 "您願意繼續分享照片背後的故事嗎？"
             )
         elif isinstance(event.message, AudioMessage):
-            # Voice message → transcribe first
             print("Voice message detected, transcribing...")
             transcribed = asyncio.run(transcribe_audio(event.message.id))
             print(f"Transcribed: {transcribed[:200]}{'...' if len(transcribed) > 200 else ''}")
             reply_text = asyncio.run(get_agent_response(transcribed, user_id, is_voice=True, message_id=event.message.id))
             reply_text = f"已收到您的語音訊息！轉錄文字如下：\n\n{transcribed}\n\n{reply_text}"
         else:
-            # Normal text message
-            user_message = event.message.text
+            user_message = message_text
             print(f"Message: {user_message}")
             reply_text = asyncio.run(get_agent_response(user_message, user_id))
 
-        print(f"Bot reply: {reply_text[:200]}{'...' if len(reply_text) > 200 else ''}")
+        # Send reply in the right place
         line_bot_api.reply_message(
             reply_token,
             TextSendMessage(text=reply_text)
@@ -89,10 +107,19 @@ def handle_message(event):
     except Exception as e:
         print("Error in handle_message:", str(e))
         traceback.print_exc()
-        try:
-            line_bot_api.reply_message(
-                reply_token,
-                TextSendMessage(text="很抱歉，我遇到技術問題。請稍後再試——您的故事對我們很重要。")
-            )
-        except Exception as reply_error:
-            print("Failed to send fallback message:", reply_error)
+        # Only send fallback in 1:1 chat (never in group)
+        if not is_group:
+            try:
+                line_bot_api.reply_message(
+                    reply_token,
+                    TextSendMessage(text="很抱歉，我遇到技術問題。請稍後再試——您的故事對我們很重要。")
+                )
+            except:
+                pass  # Silent if even reply fails
+
+def is_ad_or_spam(text: str) -> bool:
+    if not text:
+        return True
+    text = text.lower()
+    ad_keywords = ["點贊", "訂閱", "轉發", "打賞", "支持", "關注", "like", "subscribe", "share"]
+    return any(kw in text for kw in ad_keywords) or len(text) < 5
