@@ -14,6 +14,7 @@ from linebot.models import (
     AudioMessage,
     ImageMessage,
     TextSendMessage
+    JoinEvent
 )
 from agent import get_agent_response, transcribe_audio
 
