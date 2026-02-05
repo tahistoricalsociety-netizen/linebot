@@ -11,7 +11,6 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 import asyncio
 from linebot import LineBotApi
 import traceback
-import wikipedia  # Reliable Wikipedia library
 
 # === Secure Groq Setup ===
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
@@ -119,31 +118,67 @@ async def transcribe_audio(message_id: str) -> str:
         traceback.print_exc()
         return "語音轉文字失敗，請用文字分享或再試一次。"
 
-# === Wikipedia Priority Search ===
-def search_wiki_priority(query: str) -> str:
-    """Prioritize zh.wikipedia.org (Taiwan/Chinese), fallback to en.wikipedia.org."""
-    for lang in ['zh', 'en']:
-        wikipedia.set_lang(lang)
-        try:
-            page = wikipedia.page(query)
-            summary = wikipedia.summary(query, sentences=3)
-            print(f"DEBUG: Found on {lang}.wikipedia.org: {page.url}")
-            lang_name = "中文維基百科 (臺灣版)" if lang == 'zh' else "English Wikipedia"
-            return f"來自{lang_name}：{summary}\n來源：{page.url}"
-        except wikipedia.exceptions.PageError:
-            print(f"DEBUG: No page on {lang}.wikipedia.org")
-            continue
-        except wikipedia.exceptions.DisambiguationError as e:
-            # Pick first option
-            page = wikipedia.page(e.options[0])
-            summary = wikipedia.summary(e.options[0], sentences=3)
-            print(f"DEBUG: Disambiguation on {lang}, chose {e.options[0]}")
-            lang_name = "中文維基百科 (臺灣版)" if lang == 'zh' else "English Wikipedia"
-            return f"來自{lang_name} (歧義頁，選擇 {e.options[0]})：{summary}\n來源：{page.url}"
-        except Exception as e:
-            print(f"Wiki error on {lang}: {str(e)}")
-            continue
-    return "抱歉，目前找不到相關維基百科資訊。請提供更多細節，我會繼續幫您查找！"
+# === Google Custom Search – zh.wikipedia Priority ===
+async def search_wiki_priority(query: str) -> str:
+    """Prioritize zh.wikipedia.org via Google Custom Search, fallback to en.wikipedia."""
+    api_key = os.getenv("GOOGLE_CUSTOM_SEARCH_KEY")
+    cx_zh = os.getenv("GOOGLE_CX_ZH")  # Your CX for zh.wikipedia.org
+
+    if not api_key or not cx_zh:
+        print("DEBUG: Missing Google Custom Search API key or CX")
+        return "抱歉，目前無法搜尋維基百科，請稍後再試。"
+
+    try:
+        url = "https://www.googleapis.com/customsearch/v1"
+        params = {
+            "key": api_key,
+            "cx": cx_zh,
+            "q": query,
+            "num": 3,
+            "lr": "lang_zh-TW",  # Traditional Chinese
+            "cr": "countryTW",    # Taiwan region
+        }
+
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, params=params) as resp:
+                if resp.status != 200:
+                    error = await resp.text()
+                    print(f"Google CSE error {resp.status}: {error}")
+                    return "搜尋失敗，請再試一次。"
+                data = await resp.json()
+
+        if "items" in data and data["items"]:
+            top = data["items"][0]
+            title = top["title"].replace(" - 維基百科，自由的百科全書", "")
+            link = top["link"]
+            snippet = top["snippet"].replace("<b>", "").replace("</b>", "")
+            print(f"DEBUG: Found on zh.wikipedia: {link}")
+            return f"來自中文維基百科 (臺灣版)：\n**{title}**\n{snippet}\n來源：{link}"
+
+        # Fallback to English Wikipedia
+        params["cx"] = os.getenv("GOOGLE_CX_EN")  # Optional CX for en.wikipedia
+        params["lr"] = "lang_en"
+        params["cr"] = ""
+
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, params=params) as resp:
+                if resp.status != 200:
+                    return "無法搜尋英文維基百科。"
+                data = await resp.json()
+
+        if "items" in data and data["items"]:
+            top = data["items"][0]
+            title = top["title"].replace(" - Wikipedia", "")
+            link = top["link"]
+            snippet = top["snippet"].replace("<b>", "").replace("</b>", "")
+            print(f"DEBUG: Fallback to en.wikipedia: {link}")
+            return f"來自English Wikipedia：\n**{title}**\n{snippet}\n來源：{link}"
+
+        return "抱歉，目前找不到相關維基百科資訊。請提供更多細節，我會繼續幫您查找！"
+
+    except Exception as e:
+        print(f"Wikipedia search error: {str(e)}")
+        return "搜尋失敗，請再試一次。"
 
 async def get_agent_response(user_message: str, user_id: str, is_voice: bool = False, message_id: str = None, group_id: str = None) -> str:
     current_time = datetime.now()
