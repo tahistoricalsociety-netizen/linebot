@@ -48,6 +48,55 @@ async def webhook(request: Request):
         traceback.print_exc()
     return "OK"
 
+@handler.add(JoinEvent)
+def handle_join(event):
+    group_id = event.source.group_id
+    print(f"Echo joined group: {group_id}")
+
+    # Check if this is the first join (avoid repeat announcements)
+    if not is_group_already_introduced(group_id):
+        intro_message = (
+            "大家好！我是 Echo（歲月有聲），臺灣美國歷史學會（TAHS）的AI故事紀錄者。\n"
+            "我的任務是幫大家保存臺灣美國人的家族故事與回憶。\n"
+            "在群組裡，我會保持安靜，除非你們 @Echo 我才會回應。\n"
+            "想跟我單獨聊天？直接 @Echo 發訊息（語音、文字都行），我會私下回覆你。\n"
+            "建議先加我為好友（搜尋 @081virdq），這樣我可以直接私訊回覆你的故事，不會打擾群組～\n"
+            "隨時可以把我踢出群組，再重新邀請也沒問題！\n"
+            "很高興認識大家，有故事想分享，歡迎 @我喔！"
+        )
+
+        try:
+            line_bot_api.push_message(
+                group_id,
+                TextSendMessage(text=intro_message)
+            )
+            mark_group_as_introduced(group_id)
+            print(f"Intro message sent to new group: {group_id}")
+        except Exception as e:
+            print(f"Failed to send join message to group {group_id}: {e}")
+
+# Helper functions (add to main.py or move to agent.py)
+def is_group_already_introduced(group_id: str) -> bool:
+    try:
+        with open("/data/introduced_groups.json", "r", encoding="utf-8") as f:
+            groups = json.load(f)
+        return group_id in groups
+    except:
+        return False
+
+def mark_group_as_introduced(group_id: str):
+    try:
+        groups = []
+        if Path("/data/introduced_groups.json").exists():
+            with open("/data/introduced_groups.json", "r", encoding="utf-8") as f:
+                groups = json.load(f)
+        if group_id not in groups:
+            groups.append(group_id)
+            with open("/data/introduced_groups.json", "w", encoding="utf-8") as f:
+                json.dump(groups, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"Failed to mark group {group_id} as introduced: {e}")
+
 @handler.add(MessageEvent, message=(TextMessage, AudioMessage, ImageMessage))
 def handle_message(event):
     user_id = event.source.user_id

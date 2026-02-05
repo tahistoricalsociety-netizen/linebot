@@ -153,31 +153,44 @@ async def get_agent_response(user_message: str, user_id: str, is_voice: bool = F
     current_time = datetime.now()
     timestamp = current_time.strftime("%Y-%m-%d %H:%M:%S")
 
+    # Normalize message for keyword detection
+    msg_lower = user_message.lower()
+
+    # 1. Detect group join / first-time intro request
+    join_keywords = ["加入群組", "剛加入", "第一次加入", "新加入", "剛加進來"]
+    if any(kw in msg_lower for kw in join_keywords):
+        bot_reply = (
+            "大家好！我是 Echo（歲月有聲），臺灣美國歷史學會（TAHS）的AI故事紀錄者。\n"
+            "我的任務是幫大家保存臺灣美國人的家族故事與回憶。\n"
+            "在群組裡，我會保持安靜，除非被 @Echo 提到才會回應。\n"
+            "想跟我聊天？直接 @Echo 發訊息（語音、文字都行），我會私下回覆你。\n"
+            "建議先加我為好友（搜尋 @081virdq），這樣我可以直接私訊回覆你的故事，不會打擾群組～\n"
+            "隨時可以把我踢出群組，再重新邀請也沒問題！\n"
+            "很高興認識大家，有故事想分享，歡迎 @我喔～"
+        )
+        return bot_reply
+
+    # 2. Detect help / instruction request
+    help_keywords = ["說明", "怎麼用", "使用說明", "help", "怎麼玩", "介紹自己", "怎麼用", "教學", "指南"]
+    if any(kw in msg_lower for kw in help_keywords):
+        bot_reply = (
+            "大家好！我是 Echo（歲月有聲），TAHS的AI故事夥伴。\n"
+            "在群組裡我保持安靜，除非被 @Echo 提到才會回應。\n"
+            "使用方式很簡單：\n"
+            "1. 想跟我單獨聊天 → 直接 @Echo + 你的問題/故事（我會私訊回你）\n"
+            "2. 想讓大家看到我的回覆 → 在群組裡 @Echo + 內容（我會在群組公開回覆）\n"
+            "語音、文字都可以，我會用 OpenAI 轉錄語音。\n"
+            "建議先加我為好友（搜尋 @081virdq），這樣我可以直接私訊回覆你的故事，不會打擾群組～\n"
+            "隨時覺得不方便，都可以把我踢出群組，再加回來也完全沒問題！\n"
+            "有什麼想問或分享的，隨時 @我喔～"
+        )
+        return bot_reply
+
     # Handle voice message transcription first
     if is_voice:
         transcribed = await transcribe_audio(message_id)
         user_message = f"[Voice message transcribed]: {transcribed}"
         print(f"DEBUG: Voice transcribed → {user_message}")  # Debug print
-
-# Detect first join or help request (you can expand keywords)
-    if "加入群組" in user_message or "剛加入" in user_message or "第一次" in user_message:
-        bot_reply = """大家好！我是 Echo（歲月有聲），臺灣美國歷史學會（TAHS）的AI故事紀錄者。
-        我的任務是幫大家保存臺灣美國人的家族故事與回憶。
-        在群組裡，我平常保持安靜，除非你們 @Echo 我才會回應。
-        想跟我聊天？直接 @Echo 發訊息即可（語音、文字都行）。
-        我會私下回覆你個人，不會打擾群組。
-        如果想讓我公開回覆，就在群組裡 @Echo + 問題～
-        隨時可以把我踢出群組，再重新邀請也沒問題！
-        很高興認識大家，有故事想分享，隨時 @我喔～"""
-    elif "說明" in user_message or "怎麼用" in user_message or "使用說明" in user_message or "help" in user_message.lower():
-        bot_reply = """@大家好！我是 Echo（歲月有聲），TAHS的AI故事夥伴。
-        在群組裡我保持安靜，除非被 @Echo 提到才會回應。
-        使用方式很簡單：
-        1. 想跟我單獨聊天 → 直接 @Echo + 你的問題/故事（我會私訊回你）
-        2. 想讓大家看到我的回覆 → 在群組裡 @Echo + 內容（我會在群組公開回覆）
-        語音、文字都可以，我會用 OpenAI 轉錄語音。
-        隨時覺得不方便，都可以把我踢出群組，再加回來也完全沒問題！
-        有什麼想問或分享的，隨時 @我喔～"""
 
     # Initialize new conversation
     if user_id not in conversations:
