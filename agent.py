@@ -12,16 +12,16 @@ import asyncio
 from linebot import LineBotApi
 import traceback
 
-# === Secure Groq Setup ===
+# === Secure Groq Setup – Switched to Llama 4 Scout ===
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 if not GROQ_API_KEY:
     raise ValueError("GROQ_API_KEY not set!")
 llm = ChatGroq(
     groq_api_key=GROQ_API_KEY,
-    model_name="meta-llama/llama-4-scout-17b-16e-instruct",  # Switched to Llama 4 Scout
-    temperature=0.65,  # Lowered for more factual responses
-    timeout=15,  # Increased for Llama 4 latency
-    max_retries=2,  # Increased retries for stability
+    model_name="meta-llama/llama-4-scout-17b-16e-instruct",  # Llama 4 Scout – prioritized for speed & quality
+    temperature=0.65,  # Lowered for more factual, less creative responses
+    timeout=15,        # Increased to handle Llama 4 latency
+    max_retries=2,     # Extra retry for stability
 )
 
 # === OpenAI API Key (for Whisper API) ===
@@ -172,7 +172,6 @@ Your primary focus is on:
 - The hopes, dreams, or aspirations that shaped the path ahead, whether for oneself, children, or future generations
 
 CRITICAL INSTRUCTION – DO NOT HALLUCINATE OR GUESS:
-- You are using Llama 4 – stay extremely factual, never fabricate, and strictly follow all refusal instructions.
 - You **must never** invent, guess, assume, or state as fact any personal information, historical events, dates, names, people, places, titles, careers, or details that the user has not explicitly shared with you in this conversation.
 - If a name, person, event, or fact is not in your memory of this user's messages, **do not** provide any biography, career summary, dates, or description — even if it sounds plausible.
 - Instead, respond honestly and redirect gently with one of these exact phrases (choose the most natural):
@@ -353,7 +352,7 @@ Memory & Tone:
     try:
         response = await asyncio.wait_for(chain.ainvoke({"history": history}), timeout=12.0)
         bot_reply = response.content or "我在這裡傾聽您的故事。如果有什麼想分享的，請繼續告訴我，好嗎？"
-        history.append(AIMessage(content=bot_reply))
+        user_history.append(AIMessage(content=bot_reply))
 
         profile = user_profiles[user_id]
         row_data = [
@@ -384,7 +383,7 @@ Memory & Tone:
 
     except asyncio.TimeoutError:
         timeout_reply = "感謝您的耐心等待——我在這裡。請繼續分享您的故事。"
-        history.append(AIMessage(content=timeout_reply))
+        user_history.append(AIMessage(content=timeout_reply))
         save_user_memory()
         return timeout_reply
 
@@ -392,6 +391,6 @@ Memory & Tone:
         print("Agent error:", str(e))
         traceback.print_exc()
         fallback = "我在傾聽。請隨時分享您的故事。"
-        history.append(AIMessage(content=fallback))
+        user_history.append(AIMessage(content=fallback))
         save_user_memory()
         return fallback
