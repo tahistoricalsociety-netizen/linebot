@@ -58,24 +58,25 @@ def handle_message(event):
 
     print(f"\n=== New message from {user_id} (group: {group_id}) ===")
 
-    # Get message text if it's text
     message_text = ""
     if isinstance(event.message, TextMessage):
         message_text = event.message.text.strip()
 
-    # Ignore ads/spam only in groups (not in private 1:1)
     if is_group and is_ad_or_spam(message_text):
         print("Ignored in group: ad/spam/non-text message")
         return
 
-    # Check if bot was @mentioned (only relevant in groups)
     bot_mentioned = False
     if is_group and message_text:
         bot_name = line_bot_api.get_bot_info().display_name or "Echo"
         bot_mentioned = f"@{bot_name}" in message_text or f"@{bot_name.lower()}" in message_text.lower()
 
-    # Reply only if private chat OR group with @mention
-    reply_in_group = is_group and bot_mentioned
+    # Only reply if private chat OR group with @mention
+    should_reply = not is_group or bot_mentioned
+
+    if not should_reply:
+        print("Silent in group: no @mention")
+        return  # ← EARLY RETURN – no reply, no get_agent_response call
 
     try:
         if isinstance(event.message, ImageMessage):
@@ -115,7 +116,6 @@ def handle_message(event):
                 )
             except:
                 pass
-
 def is_ad_or_spam(text: str) -> bool:
     if not text:
         return True
