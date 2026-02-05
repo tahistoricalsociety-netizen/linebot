@@ -156,7 +156,7 @@ async def get_agent_response(user_message: str, user_id: str, is_voice: bool = F
     # Normalize for keyword matching
     msg_lower = user_message.lower()
 
-    # Special cases (join/help) — always reply if triggered, even in private
+    # Special cases (join/help) — always reply if triggered
     # 1. Detect group join / first-time intro request
     join_keywords = ["加入群組", "剛加入", "第一次加入", "新加入", "剛加進來", "剛進群", "新成員"]
     if any(kw in msg_lower for kw in join_keywords):
@@ -170,7 +170,7 @@ async def get_agent_response(user_message: str, user_id: str, is_voice: bool = F
             "隨時可以把我踢出群組，再加回來也完全沒問題！\n"
             "很高興認識大家，有故事想分享，歡迎 @我 或私訊我喔～"
         )
-        return bot_reply
+        # Continue to log special reply
 
     # 2. Detect help / instruction request
     help_keywords = ["說明", "怎麼用", "使用說明", "help", "怎麼玩", "介紹自己", "教學", "指南", "怎麼操作", "使用方法"]
@@ -187,7 +187,7 @@ async def get_agent_response(user_message: str, user_id: str, is_voice: bool = F
             "隨時覺得不方便，都可以把我踢出群組，再加回來也完全沒問題！\n"
             "有什麼想問或分享的，歡迎 @我 或私訊我喔～"
         )
-        return bot_reply
+        # Continue to log special reply
 
     # Handle voice message transcription first
     if is_voice:
@@ -257,7 +257,7 @@ Incorrect or assumed information about important people, events, or personal det
 """
         })
 
-        # Initialize user profile tracking
+        # Initialize user profile tracking with last_followup_time
         user_profiles[user_id] = {
             "first_interaction": current_time.strftime("%Y-%m-%d %H:%M:%S"),
             "last_message_time": current_time.isoformat(),
@@ -346,10 +346,6 @@ Incorrect or assumed information about important people, events, or personal det
         bot_mentioned = f"@{bot_name}" in user_message or f"@{bot_name.lower()}" in user_message.lower()
 
     should_reply = not is_group or bot_mentioned  # reply in private OR if @mentioned in group
-
-    # If special reply already set (join/help), use it
-    if bot_reply is not None:
-        should_reply = True  # force reply for special cases
 
     if not should_reply:
         # Silent group message → log it
