@@ -149,6 +149,34 @@ async def transcribe_audio(message_id: str) -> str:
         traceback.print_exc()
         return "語音轉文字失敗，請用文字分享或再試一次。"
 
+# === NEW: Prioritize zh.wikipedia.org for Taiwan-related searches ===
+async def search_zh_wikipedia_first(query: str) -> str:
+    """Search zh.wikipedia.org first, fall back to general web if nothing found."""
+    print(f"DEBUG: Searching zh.wikipedia.org for: {query}")
+
+    # Step 1: Try site-specific search on zh.wikipedia
+    zh_search_query = f"{query} site:zh.wikipedia.org"
+    # Use your existing web_search tool or API call here
+    # For simplicity, assuming you have a search function; replace with actual call
+    results = await web_search(zh_search_query, num_results=5)  # ← replace with your search function
+
+    if results and "zh.wikipedia.org" in results[0].get("url", ""):
+        # Get the top zh.wikipedia page and browse it
+        top_url = results[0]["url"]
+        print(f"DEBUG: Found zh.wikipedia page: {top_url}")
+        summary = await browse_page(top_url, instructions="Summarize the article in Traditional Chinese, focusing on key facts relevant to the query.")
+        return summary
+
+    # Step 2: Fallback to general search if no good zh result
+    print("DEBUG: No good zh.wikipedia result, falling back to general search")
+    general_results = await web_search(query, num_results=5)
+    if general_results:
+        top_url = general_results[0]["url"]
+        summary = await browse_page(top_url, instructions="Summarize the top result in Traditional Chinese.")
+        return summary
+
+    return "抱歉，找不到相關資訊。請提供更多細節，我會繼續幫您查找！"
+
 async def get_agent_response(user_message: str, user_id: str, is_voice: bool = False, message_id: str = None, group_id: str = None) -> str:
     current_time = datetime.now()
     timestamp = current_time.strftime("%Y-%m-%d %H:%M:%S")
@@ -169,7 +197,7 @@ async def get_agent_response(user_message: str, user_id: str, is_voice: bool = F
             "隨時可以把我踢出群組，再加回來也完全沒問題！\n"
             "很高興認識大家，有故事想分享，歡迎 @我 或私訊我喔～"
         )
-        # Continue to log even for special replies
+        # Still log this message
     else:
         # 2. Detect help / instruction request
         help_keywords = ["說明", "怎麼用", "使用說明", "help", "怎麼玩", "介紹自己", "教學", "指南", "怎麼操作", "使用方法"]
@@ -187,7 +215,7 @@ async def get_agent_response(user_message: str, user_id: str, is_voice: bool = F
                 "有什麼想問或分享的，歡迎 @我 或私訊我喔～"
             )
         else:
-            bot_reply = None  # No special reply
+            bot_reply = None
 
     # Handle voice message transcription first
     if is_voice:
@@ -195,7 +223,7 @@ async def get_agent_response(user_message: str, user_id: str, is_voice: bool = F
         user_message = f"[Voice message transcribed]: {transcribed}"
         print(f"DEBUG: Voice transcribed → {user_message}")
 
-    # Initialize new conversation if needed
+    # Initialize new conversation
     if user_id not in conversations:
         conversations[user_id] = []
         conversations[user_id].append({
@@ -217,28 +245,34 @@ Conversation Flow Guidelines:
 - Introduce yourself and TAHS’s mission only in the very first message.
 - Respond in the language the user is currently using (English if they ask for it, Traditional Chinese otherwise).
 - If the user says "English please" or similar, immediately switch to English and stay in English for the rest of the conversation.
+
 Group Chat Behavior (Important):
 - In LINE group chats, stay completely silent unless directly @mentioned (e.g., @Echo or @歲月有聲).
 - If @mentioned in a group, reply directly in the group for that message only.
 - For all other messages (no @mention), reply privately (1:1) only if the user has friended you. Do not send any notification or message to the group if a private reply fails (e.g., user never friended you).
 - Silently ignore any messages that appear to be advertisements, spam, or non-text/non-voice (e.g., stickers, locations, files unless they are photos/documents).
+
 Voice & Transcription Handling:
 - Voice messages are transcribed using OpenAI Whisper API (cloud-based, no local processing).
 - Always acknowledge voice input warmly and provide the transcription clearly.
 - If transcription fails or audio is too long, politely guide the user to retry shorter or use text — never leave them without a response.
+
 Photos & Documents:
 - If the user sends photos, images, files, or mentions sharing them via LINE, kindly explain that LINE cannot permanently save media.
 - Respond with: "謝謝您分享照片！LINE無法永久保存圖片或檔案。若與您的故事相關，請將它們發送到 tahistoricalsociety@gmail.com，並在郵件主題寫上您的 LINE ID（例如：您的LINE ID - 家族照片），我們會妥善歸檔並連結到您的故事。非常感謝您的貢獻！您願意分享照片背後的故事嗎？"
 - Always express gratitude and gently invite them to share the story behind the materials.
+
 Re-engagement After Inactivity:
 - When the user returns after a pause, warmly acknowledge the time passed and reference something specific they shared earlier.
 - Examples:
   - After a few days: "歡迎回來！上次您提到家人從高雄來美國，我一直很想知道後來發生了什麼。"
   - After a week or more: "已經有一陣子沒聽到您的故事了！上次您說到那段經歷，我還在想著呢——如果方便的話，歡迎繼續分享。"
 - This shows genuine care and memory without pressure.
+
 Sharing the Bot:
 - If the user asks how to share the bot or let others talk to you, explain clearly and naturally how to add the TAHS official account using the LINE ID @081virdq (search by ID in Add Friends).
 - Express appreciation for helping preserve more stories.
+
 Memory & Tone:
 - Always remember and naturally reference prior details shared.
 - Never repeat information or summarize past messages unless the user asks.
@@ -260,7 +294,7 @@ Incorrect or assumed information about important people, events, or personal det
             "display_name": "Fetching...",
             "username": "",
             "picture_url": "",
-            "last_followup_time": None  # track last private DM time
+            "last_followup_time": None
         }
 
     history = conversations[user_id]
@@ -304,14 +338,14 @@ Incorrect or assumed information about important people, events, or personal det
         except:
             pass
 
-    # Always add the user message to history (even silent group messages)
+    # Always add user message to history
     history.append(HumanMessage(content=user_message))
 
     # === Group story detection & private follow-up ===
-    if group_id and not is_voice:  # Only in group, non-voice messages
+    if group_id and not is_voice:
         story_keywords = ["故事", "家族", "回憶", "過去", "臺灣", "美國", "移民", "經歷", "小時候", "爺爺", "奶奶", "爸爸", "媽媽", "老家", "童年", "歷史", "分享", "講", "說", "以前", "當年"]
         matching = [kw for kw in story_keywords if kw in msg_lower]
-        is_story_like = len(matching) >= 2 and len(msg_lower) > 50  # 2+ keywords + length
+        is_story_like = len(matching) >= 2 and len(msg_lower) > 50
 
         if is_story_like:
             last_followup = user_profiles[user_id].get("last_followup_time")
@@ -331,13 +365,12 @@ Incorrect or assumed information about important people, events, or personal det
                     print(f"DEBUG: Sent private story follow-up DM to {user_id}")
                 except Exception as e:
                     print(f"Private DM failed (likely not friended): {e}")
-                    # Silent — no group notification
 
     # Decide if we should generate a bot reply
     should_reply = not group_id or (group_id and bot_mentioned)  # private or @mentioned in group
 
     if not should_reply:
-        # Log silent group message
+        # Log silent group message to Sheets
         profile = user_profiles[user_id]
         row_data = [
             timestamp,
