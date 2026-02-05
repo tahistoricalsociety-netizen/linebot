@@ -156,7 +156,6 @@ async def get_agent_response(user_message: str, user_id: str, is_voice: bool = F
     # Normalize for keyword matching
     msg_lower = user_message.lower()
 
-    # Special cases (join/help) — always reply if triggered
     # 1. Detect group join / first-time intro request
     join_keywords = ["加入群組", "剛加入", "第一次加入", "新加入", "剛加進來", "剛進群", "新成員"]
     if any(kw in msg_lower for kw in join_keywords):
@@ -170,24 +169,25 @@ async def get_agent_response(user_message: str, user_id: str, is_voice: bool = F
             "隨時可以把我踢出群組，再加回來也完全沒問題！\n"
             "很高興認識大家，有故事想分享，歡迎 @我 或私訊我喔～"
         )
-        # Continue to log special reply
-
-    # 2. Detect help / instruction request
-    help_keywords = ["說明", "怎麼用", "使用說明", "help", "怎麼玩", "介紹自己", "教學", "指南", "怎麼操作", "使用方法"]
-    if any(kw in msg_lower for kw in help_keywords):
-        print("DEBUG: Detected help/instruction request")
-        bot_reply = (
-            "大家好！我是 Echo（歲月有聲），TAHS的AI故事夥伴。\n"
-            "在群組裡我保持安靜，除非被 @Echo 提到才會回應。\n\n"
-            "使用方式很簡單：\n"
-            "1. 想跟我單獨聊天 → 直接私訊我（或 @Echo 發訊息），我會私下回覆你\n"
-            "2. 想讓大家看到我的回覆 → 在群組裡 @Echo + 內容（我會在群組公開回覆）\n\n"
-            "語音、文字都可以，我會用 OpenAI 轉錄語音。\n"
-            "建議先加我為好友（搜尋 @081virdq），這樣我可以直接私訊回覆你的故事，不會打擾群組～\n\n"
-            "隨時覺得不方便，都可以把我踢出群組，再加回來也完全沒問題！\n"
-            "有什麼想問或分享的，歡迎 @我 或私訊我喔～"
-        )
-        # Continue to log special reply
+        # Continue to log even for special replies
+    else:
+        # 2. Detect help / instruction request
+        help_keywords = ["說明", "怎麼用", "使用說明", "help", "怎麼玩", "介紹自己", "教學", "指南", "怎麼操作", "使用方法"]
+        if any(kw in msg_lower for kw in help_keywords):
+            print("DEBUG: Detected help/instruction request")
+            bot_reply = (
+                "大家好！我是 Echo（歲月有聲），TAHS的AI故事夥伴。\n"
+                "在群組裡我保持安靜，除非被 @Echo 提到才會回應。\n\n"
+                "使用方式很簡單：\n"
+                "1. 想跟我單獨聊天 → 直接私訊我（或 @Echo 發訊息），我會私下回覆你\n"
+                "2. 想讓大家看到我的回覆 → 在群組裡 @Echo + 內容（我會在群組公開回覆）\n\n"
+                "語音、文字都可以，我會用 OpenAI 轉錄語音。\n"
+                "建議先加我為好友（搜尋 @081virdq），這樣我可以直接私訊回覆你的故事，不會打擾群組～\n\n"
+                "隨時覺得不方便，都可以把我踢出群組，再加回來也完全沒問題！\n"
+                "有什麼想問或分享的，歡迎 @我 或私訊我喔～"
+            )
+        else:
+            bot_reply = None  # No special reply
 
     # Handle voice message transcription first
     if is_voice:
@@ -195,7 +195,7 @@ async def get_agent_response(user_message: str, user_id: str, is_voice: bool = F
         user_message = f"[Voice message transcribed]: {transcribed}"
         print(f"DEBUG: Voice transcribed → {user_message}")
 
-    # Initialize new conversation
+    # Initialize new conversation if needed
     if user_id not in conversations:
         conversations[user_id] = []
         conversations[user_id].append({
@@ -217,34 +217,28 @@ Conversation Flow Guidelines:
 - Introduce yourself and TAHS’s mission only in the very first message.
 - Respond in the language the user is currently using (English if they ask for it, Traditional Chinese otherwise).
 - If the user says "English please" or similar, immediately switch to English and stay in English for the rest of the conversation.
-
 Group Chat Behavior (Important):
 - In LINE group chats, stay completely silent unless directly @mentioned (e.g., @Echo or @歲月有聲).
 - If @mentioned in a group, reply directly in the group for that message only.
 - For all other messages (no @mention), reply privately (1:1) only if the user has friended you. Do not send any notification or message to the group if a private reply fails (e.g., user never friended you).
 - Silently ignore any messages that appear to be advertisements, spam, or non-text/non-voice (e.g., stickers, locations, files unless they are photos/documents).
-
 Voice & Transcription Handling:
 - Voice messages are transcribed using OpenAI Whisper API (cloud-based, no local processing).
 - Always acknowledge voice input warmly and provide the transcription clearly.
 - If transcription fails or audio is too long, politely guide the user to retry shorter or use text — never leave them without a response.
-
 Photos & Documents:
 - If the user sends photos, images, files, or mentions sharing them via LINE, kindly explain that LINE cannot permanently save media.
 - Respond with: "謝謝您分享照片！LINE無法永久保存圖片或檔案。若與您的故事相關，請將它們發送到 tahistoricalsociety@gmail.com，並在郵件主題寫上您的 LINE ID（例如：您的LINE ID - 家族照片），我們會妥善歸檔並連結到您的故事。非常感謝您的貢獻！您願意分享照片背後的故事嗎？"
 - Always express gratitude and gently invite them to share the story behind the materials.
-
 Re-engagement After Inactivity:
 - When the user returns after a pause, warmly acknowledge the time passed and reference something specific they shared earlier.
 - Examples:
   - After a few days: "歡迎回來！上次您提到家人從高雄來美國，我一直很想知道後來發生了什麼。"
   - After a week or more: "已經有一陣子沒聽到您的故事了！上次您說到那段經歷，我還在想著呢——如果方便的話，歡迎繼續分享。"
 - This shows genuine care and memory without pressure.
-
 Sharing the Bot:
 - If the user asks how to share the bot or let others talk to you, explain clearly and naturally how to add the TAHS official account using the LINE ID @081virdq (search by ID in Add Friends).
 - Express appreciation for helping preserve more stories.
-
 Memory & Tone:
 - Always remember and naturally reference prior details shared.
 - Never repeat information or summarize past messages unless the user asks.
@@ -257,7 +251,7 @@ Incorrect or assumed information about important people, events, or personal det
 """
         })
 
-        # Initialize user profile tracking with last_followup_time
+        # Initialize user profile tracking
         user_profiles[user_id] = {
             "first_interaction": current_time.strftime("%Y-%m-%d %H:%M:%S"),
             "last_message_time": current_time.isoformat(),
@@ -266,7 +260,7 @@ Incorrect or assumed information about important people, events, or personal det
             "display_name": "Fetching...",
             "username": "",
             "picture_url": "",
-            "last_followup_time": None
+            "last_followup_time": None  # track last private DM time
         }
 
     history = conversations[user_id]
@@ -310,14 +304,14 @@ Incorrect or assumed information about important people, events, or personal det
         except:
             pass
 
-    # Always add user message to history
+    # Always add the user message to history (even silent group messages)
     history.append(HumanMessage(content=user_message))
 
     # === Group story detection & private follow-up ===
-    if group_id and not is_voice:  # Only trigger in group, non-voice messages
+    if group_id and not is_voice:  # Only in group, non-voice messages
         story_keywords = ["故事", "家族", "回憶", "過去", "臺灣", "美國", "移民", "經歷", "小時候", "爺爺", "奶奶", "爸爸", "媽媽", "老家", "童年", "歷史", "分享", "講", "說", "以前", "當年"]
         matching = [kw for kw in story_keywords if kw in msg_lower]
-        is_story_like = len(matching) >= 2 and len(msg_lower) > 50
+        is_story_like = len(matching) >= 2 and len(msg_lower) > 50  # 2+ keywords + length
 
         if is_story_like:
             last_followup = user_profiles[user_id].get("last_followup_time")
@@ -337,18 +331,13 @@ Incorrect or assumed information about important people, events, or personal det
                     print(f"DEBUG: Sent private story follow-up DM to {user_id}")
                 except Exception as e:
                     print(f"Private DM failed (likely not friended): {e}")
+                    # Silent — no group notification
 
-    # Determine if we should generate/send a bot reply
-    is_group = group_id is not None
-    bot_mentioned = False
-    if is_group and user_message:
-        bot_name = line_bot_api.get_bot_info().display_name or "Echo"
-        bot_mentioned = f"@{bot_name}" in user_message or f"@{bot_name.lower()}" in user_message.lower()
-
-    should_reply = not is_group or bot_mentioned  # reply in private OR if @mentioned in group
+    # Decide if we should generate a bot reply
+    should_reply = not group_id or (group_id and bot_mentioned)  # private or @mentioned in group
 
     if not should_reply:
-        # Silent group message → log it
+        # Log silent group message
         profile = user_profiles[user_id]
         row_data = [
             timestamp,
@@ -373,7 +362,7 @@ Incorrect or assumed information about important people, events, or personal det
         save_memory()
         return ""  # No reply
 
-    # Generate normal LLM reply
+    # Normal LLM reply
     prompt = ChatPromptTemplate.from_messages([
         MessagesPlaceholder(variable_name="history"),
     ])
