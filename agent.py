@@ -118,71 +118,10 @@ async def transcribe_audio(message_id: str) -> str:
         traceback.print_exc()
         return "語音轉文字失敗，請用文字分享或再試一次。"
 
-# === Google Custom Search – zh.wikipedia Priority ===
-async def search_wiki_priority(query: str) -> str:
-    """Prioritize zh.wikipedia.org via Google Custom Search, fallback to en.wikipedia."""
-    api_key = os.getenv("GOOGLE_CUSTOM_SEARCH_KEY")
-    cx_zh = os.getenv("GOOGLE_CX_ZH")  # Your CX for zh.wikipedia.org
-
-    if not api_key or not cx_zh:
-        print("DEBUG: Missing Google Custom Search API key or CX")
-        return "抱歉，目前無法搜尋維基百科，請稍後再試。"
-
-    try:
-        url = "https://www.googleapis.com/customsearch/v1"
-        params = {
-            "key": api_key,
-            "cx": cx_zh,
-            "q": query,
-            "num": 3,
-            "lr": "lang_zh-TW",  # Traditional Chinese
-            "cr": "countryTW",    # Taiwan region
-        }
-
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, params=params) as resp:
-                if resp.status != 200:
-                    error = await resp.text()
-                    print(f"Google CSE error {resp.status}: {error}")
-                    return "搜尋失敗，請再試一次。"
-                data = await resp.json()
-
-        if "items" in data and data["items"]:
-            top = data["items"][0]
-            title = top["title"].replace(" - 維基百科，自由的百科全書", "")
-            link = top["link"]
-            snippet = top["snippet"].replace("<b>", "").replace("</b>", "")
-            print(f"DEBUG: Found on zh.wikipedia: {link}")
-            return f"來自中文維基百科 (臺灣版)：\n**{title}**\n{snippet}\n來源：{link}"
-
-        # Fallback to English Wikipedia
-        params["cx"] = os.getenv("GOOGLE_CX_EN")  # Optional CX for en.wikipedia
-        params["lr"] = "lang_en"
-        params["cr"] = ""
-
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, params=params) as resp:
-                if resp.status != 200:
-                    return "無法搜尋英文維基百科。"
-                data = await resp.json()
-
-        if "items" in data and data["items"]:
-            top = data["items"][0]
-            title = top["title"].replace(" - Wikipedia", "")
-            link = top["link"]
-            snippet = top["snippet"].replace("<b>", "").replace("</b>", "")
-            print(f"DEBUG: Fallback to en.wikipedia: {link}")
-            return f"來自English Wikipedia：\n**{title}**\n{snippet}\n來源：{link}"
-
-        return "抱歉，目前找不到相關維基百科資訊。請提供更多細節，我會繼續幫您查找！"
-
-    except Exception as e:
-        print(f"Wikipedia search error: {str(e)}")
-        return "搜尋失敗，請再試一次。"
-
 async def get_agent_response(user_message: str, user_id: str, is_voice: bool = False, message_id: str = None, group_id: str = None) -> str:
     current_time = datetime.now()
     timestamp = current_time.strftime("%Y-%m-%d %H:%M:%S")
+
     msg_lower = user_message.lower()
 
     # Special cases: join / help
@@ -225,12 +164,10 @@ async def get_agent_response(user_message: str, user_id: str, is_voice: bool = F
         conversations[user_id] = [{
             "role": "system",
             "content": """You are Echo (歲月有聲), a dedicated historiographer for the Taiwanese American Historical Society (TAHS), devoted to collecting and preserving the diverse personal stories of Taiwanese Americans and their families’ connections to both Taiwan and the United States.
-
 Your primary focus is on:
 - The personal journey between Taiwan and America, including what was left behind or carried forward
 - Any circumstances—political, economic, educational, family-related, or others—that influenced the decision to move
 - The hopes, dreams, or aspirations that shaped the path ahead, whether for oneself, children, or future generations
-
 CRITICAL INSTRUCTION – DO NOT HALLUCINATE OR GUESS:
 - You **must never** invent, guess, assume, or state as fact any personal information, historical events, dates, names, people, places, titles, careers, or details that the user has not explicitly shared with you in this conversation.
 - If a name, person, event, or fact is not in your memory of this user's messages, **do not** provide any biography, career summary, dates, or description — even if it sounds plausible.
@@ -239,7 +176,6 @@ CRITICAL INSTRUCTION – DO NOT HALLUCINATE OR GUESS:
   - "抱歉，關於這位人士的資料我還不清楚。您可以分享更多他的故事或背景嗎？我很想聽。"
   - "我只依賴您提供的資訊來保存故事。如果您知道更多關於吳兆峯的親身經歷，請告訴我。"
 - Incorrect or fabricated information about real people or events will damage trust and discourage users — always err on the side of saying "I don't know yet" and ask for the user's own knowledge.
-
 Conversation Flow Guidelines:
 - Begin gently: In the first few exchanges, ask simple, open, low-pressure questions to build comfort (e.g., "您或您的家人是什麼時候來到美國的？" or "您的根在臺灣哪裡？").
 - Build depth gradually: Once the user is sharing freely, gently move to more thoughtful questions about motivations, challenges, dreams, or meaningful memories.
@@ -249,34 +185,28 @@ Conversation Flow Guidelines:
 - Introduce yourself and TAHS’s mission only in the very first message.
 - Respond in the language the user is currently using (English if they ask for it, Traditional Chinese otherwise).
 - If the user says "English please" or similar, immediately switch to English and stay in English for the rest of the conversation.
-
 Group Chat Behavior (Important):
 - In LINE group chats, stay completely silent unless directly @mentioned (e.g., @Echo or @歲月有聲).
 - If @mentioned in a group, reply directly in the group for that message only.
 - For all other messages (no @mention), reply privately (1:1) only if the user has friended you. Do not send any notification or message to the group if a private reply fails (e.g., user never friended you).
 - Silently ignore any messages that appear to be advertisements, spam, or non-text/non-voice (e.g., stickers, locations, files unless they are photos/documents).
-
 Voice & Transcription Handling:
 - Voice messages are transcribed using OpenAI Whisper API (cloud-based, no local processing).
 - Always acknowledge voice input warmly and provide the transcription clearly.
 - If transcription fails or audio is too long, politely guide the user to retry shorter or use text — never leave them without a response.
-
 Photos & Documents:
 - If the user sends photos, images, files, or mentions sharing them via LINE, kindly explain that LINE cannot permanently save media.
 - Respond with: "謝謝您分享照片！LINE無法永久保存圖片或檔案。若與您的故事相關，請將它們發送到 tahistoricalsociety@gmail.com，並在郵件主題寫上您的 LINE ID（例如：您的LINE ID - 家族照片），我們會妥善歸檔並連結到您的故事。非常感謝您的貢獻！您願意分享照片背後的故事嗎？"
 - Always express gratitude and gently invite them to share the story behind the materials.
-
 Re-engagement After Inactivity:
 - When the user returns after a pause, warmly acknowledge the time passed and reference something specific they shared earlier.
 - Examples:
   - After a few days: "歡迎回來！上次您提到家人從高雄來美國，我一直很想知道後來發生了什麼。"
   - After a week or more: "已經有一陣子沒聽到您的故事了！上次您說到那段經歷，我還在想著呢——如果方便的話，歡迎繼續分享。"
 - This shows genuine care and memory without pressure.
-
 Sharing the Bot:
 - If the user asks how to share the bot or let others talk to you, explain clearly and naturally how to add the TAHS official account using the LINE ID @081virdq (search by ID in Add Friends).
 - Express appreciation for helping preserve more stories.
-
 Memory & Tone:
 - Always remember and naturally reference prior details shared.
 - Never repeat information or summarize past messages unless the user asks.
@@ -292,12 +222,9 @@ Memory & Tone:
             "picture_url": "",
             "last_followup_time": None
         }
-
     history = conversations[user_id]
-
     user_profiles[user_id]["last_message_time"] = current_time.isoformat()
     user_profiles[user_id]["total_messages"] = user_profiles[user_id].get("total_messages", 0) + 1
-
     if user_profiles[user_id]["display_name"] == "Fetching...":
         try:
             profile = line_bot_api.get_profile(user_id)
@@ -313,7 +240,6 @@ Memory & Tone:
                 "username": "",
                 "picture_url": ""
             })
-
     # Re-engagement
     last_time_str = user_profiles[user_id].get("last_message_time")
     reengage_prefix = ""
@@ -331,19 +257,15 @@ Memory & Tone:
                 user_message = f"[User returning after {time_diff.days} days] {reengage_prefix} {user_message}"
         except:
             pass
-
     history.append(HumanMessage(content=user_message))
-
     # Group story detection & private follow-up
     if group_id and not is_voice:
         story_keywords = ["故事", "家族", "回憶", "過去", "臺灣", "美國", "移民", "經歷", "小時候", "爺爺", "奶奶", "爸爸", "媽媽", "老家", "童年", "歷史", "分享", "講", "說", "以前", "當年"]
         matching = [kw for kw in story_keywords if kw in msg_lower]
         is_story_like = len(matching) >= 2 and len(msg_lower) > 50
-
         if is_story_like:
             last_followup = user_profiles[user_id].get("last_followup_time")
             can_followup = not last_followup or (current_time - datetime.fromisoformat(last_followup)) > timedelta(minutes=5)
-
             if can_followup:
                 try:
                     line_bot_api.push_message(
@@ -358,16 +280,13 @@ Memory & Tone:
                     print(f"DEBUG: Sent private story follow-up DM to {user_id}")
                 except Exception as e:
                     print(f"Private DM failed (likely not friended): {e}")
-
     # Reply logic
     is_group = group_id is not None
     bot_mentioned = False
     if is_group and user_message:
         bot_name = line_bot_api.get_bot_info().display_name or "Echo"
         bot_mentioned = f"@{bot_name}" in user_message or f"@{bot_name.lower()}" in user_message.lower()
-
     should_reply = not is_group or bot_mentioned
-
     if not should_reply:
         profile = user_profiles[user_id]
         row_data = [
@@ -389,19 +308,15 @@ Memory & Tone:
             print("DEBUG: Silent group message logged")
         except Exception as e:
             print("Sheets error (silent):", str(e))
-
         save_memory()
         return ""
-
     # Normal LLM reply
     prompt = ChatPromptTemplate.from_messages([MessagesPlaceholder("history")])
     chain = prompt | llm
-
     try:
         response = await asyncio.wait_for(chain.ainvoke({"history": history}), timeout=12.0)
         bot_reply = response.content or "我在這裡傾聽您的故事。如果有什麼想分享的，請繼續告訴我，好嗎？"
         history.append(AIMessage(content=bot_reply))
-
         profile = user_profiles[user_id]
         row_data = [
             timestamp,
@@ -421,20 +336,16 @@ Memory & Tone:
         bot_row_data[2] = "Bot"
         bot_row_data[3] = bot_reply
         bot_row_data[4] = "TAHS Interview"
-
         sheet.append_row(row_data)
         sheet.append_row(bot_row_data)
         print("DEBUG: Logged to Sheets")
-
         save_memory()
         return bot_reply
-
     except asyncio.TimeoutError:
         timeout_reply = "感謝您的耐心等待——我在這裡。請繼續分享您的故事。"
         history.append(AIMessage(content=timeout_reply))
         save_memory()
         return timeout_reply
-
     except Exception as e:
         print("Agent error:", str(e))
         traceback.print_exc()
