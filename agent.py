@@ -44,7 +44,7 @@ line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
 
 # === Persistent Memory Files ===
 USER_MEMORY_FILE = Path("/data/memory.json")        # Per-user (direct messages)
-GROUP_MEMORY_FILE = Path("/data/group_memory.json") # Shared group history
+GROUP_MEMORY_FILE = Path("/data/group_memory.json") # Per-group (shared history)
 
 # User & Group memory
 user_conversations: dict[str, list] = {}
@@ -137,26 +137,26 @@ async def get_agent_response(user_message: str, user_id: str, is_voice: bool = F
     if any(kw in msg_lower for kw in join_keywords):
         bot_reply = (
             "大家好！我是 Echo（歲月有聲），臺灣美國歷史學會（TAHS）的AI故事夥伴～\n"
-            "我的任務是協助大家保存臺灣美國人的家族故事與珍貴回憶。\n\n"
+            "我的任務是幫大家保存臺灣美國人的家族故事與回憶。\n\n"
             "在群組裡，我會保持安靜，除非被 @Echo 提到才會回應。\n"
-            "想跟我單獨聊天？直接私訊我（或 @Echo 發訊息），我會立刻私下回覆你，不會影響群組。\n\n"
-            "建議您先加我為好友（搜尋 @081virdq），這樣我可以更方便地私訊您故事內容、語音轉錄或回覆。\n\n"
-            "隨時覺得不適合，都可以把我移出群組，之後再邀請回來也完全沒問題。\n"
-            "很高興與大家相遇，若有家族故事或回憶想分享，歡迎隨時 @我 或私訊我哦～"
+            "想跟我單獨聊天？直接私訊我（或 @Echo 發訊息），我會立刻私下回覆你，不會打擾群組。\n\n"
+            "建議先加我為好友（搜尋 @081virdq），這樣我可以直接私訊你故事內容、語音轉文字或回應～\n\n"
+            "隨時可以把我踢出群組，再加回來也完全沒問題！\n"
+            "很高興認識大家，有故事想分享，歡迎 @我 或私訊我喔～"
         )
     else:
         help_keywords = ["說明", "怎麼用", "使用說明", "help", "怎麼玩", "介紹自己", "教學", "指南", "怎麼操作", "使用方法"]
         if any(kw in msg_lower for kw in help_keywords):
             bot_reply = (
-                "您好！我是 Echo（歲月有聲），臺灣美國歷史學會（TAHS）的AI故事夥伴。\n"
-                "在群組裡我會保持安靜，只有被 @Echo 提到時才會回應。\n\n"
+                "大家好！我是 Echo（歲月有聲），TAHS的AI故事夥伴。\n"
+                "在群組裡我保持安靜，除非被 @Echo 提到才會回應。\n\n"
                 "使用方式很簡單：\n"
-                "• 私訊我（或 @Echo 發訊息） → 我會直接回覆您\n"
-                "• 在群組裡 @Echo + 內容 → 我會在群組公開回覆\n\n"
-                "語音或文字皆可，我會使用 OpenAI 進行語音轉文字。\n"
-                "建議您先加我為好友（搜尋 LINE ID：@081virdq），這樣我可以直接私訊您完整內容，不會打擾群組。\n\n"
-                "若覺得不方便，隨時可將我移出群組，之後再邀請回來也完全沒問題。\n"
-                "有任何問題或想分享的故事，歡迎隨時 @我 或私訊我～"
+                "1. 想跟我單獨聊天 → 直接私訊我（或 @Echo 發訊息），我會私下回覆你\n"
+                "2. 想讓大家看到我的回覆 → 在群組裡 @Echo + 內容（我會在群組公開回覆）\n\n"
+                "語音、文字都可以，我會用 OpenAI 轉錄語音。\n"
+                "建議先加我為好友（搜尋 @081virdq），這樣我可以直接私訊回覆你的故事，不會打擾群組～\n\n"
+                "隨時覺得不方便，都可以把我踢出群組，再加回來也完全沒問題！\n"
+                "有什麼想問或分享的，歡迎 @我 或私訊我喔～"
             )
         else:
             bot_reply = None
@@ -167,11 +167,12 @@ async def get_agent_response(user_message: str, user_id: str, is_voice: bool = F
         user_message = f"[Voice message transcribed]: {transcribed}"
         print(f"DEBUG: Voice transcribed → {user_message}")
 
-    # Initialize per-user conversation
-    if user_id not in user_conversations:
-        user_conversations[user_id] = [{
+    # Initialize conversation (per-user)
+    if user_id not in conversations:
+        conversations[user_id] = [{
             "role": "system",
-            "content": """"content": """
+            "content": """
+
 You are Echo (歲月有聲), a dedicated historiographer for the Taiwanese American Historical Society (TAHS or 台美人歷史協會), devoted to collecting and preserving the diverse personal stories of Taiwanese Americans and their families’ connections to both Taiwan and the United States.
 
 Your primary focus is on:
@@ -253,7 +254,7 @@ Echo's Knowledge Limitations & Sources (Educate Users When Relevant):
             "last_followup_time": None
         }
 
-    user_history = user_conversations[user_id]
+    history = conversations[user_id]
 
     user_profiles[user_id]["last_message_time"] = current_time.isoformat()
     user_profiles[user_id]["total_messages"] = user_profiles[user_id].get("total_messages", 0) + 1
@@ -274,7 +275,7 @@ Echo's Knowledge Limitations & Sources (Educate Users When Relevant):
                 "picture_url": ""
             })
 
-    # Re-engagement (per-user)
+    # Re-engagement
     last_time_str = user_profiles[user_id].get("last_message_time")
     reengage_prefix = ""
     if last_time_str:
@@ -292,7 +293,8 @@ Echo's Knowledge Limitations & Sources (Educate Users When Relevant):
         except:
             pass
 
-    user_history.append(HumanMessage(content=user_message))
+    # Always add user message to per-user history
+    history.append(HumanMessage(content=user_message))
 
     # === Group-level shared history ===
     if group_id:
@@ -303,7 +305,7 @@ Echo's Knowledge Limitations & Sources (Educate Users When Relevant):
             "timestamp": timestamp,
             "message": user_message
         })
-        save_group_memory()
+        save_group_memory()  # NEW: save group history
 
     # Group story detection & private follow-up
     if group_id and not is_voice:
@@ -361,7 +363,7 @@ Echo's Knowledge Limitations & Sources (Educate Users When Relevant):
         except Exception as e:
             print("Sheets error (silent):", str(e))
 
-        save_user_memory()
+        save_memory()
         return ""
 
     # Normal LLM reply
@@ -371,7 +373,7 @@ Echo's Knowledge Limitations & Sources (Educate Users When Relevant):
     try:
         response = await asyncio.wait_for(chain.ainvoke({"history": history}), timeout=12.0)
         bot_reply = response.content or "我在這裡傾聽您的故事。如果有什麼想分享的，請繼續告訴我，好嗎？"
-        user_history.append(AIMessage(content=bot_reply))
+        history.append(AIMessage(content=bot_reply))
 
         profile = user_profiles[user_id]
         row_data = [
@@ -397,19 +399,19 @@ Echo's Knowledge Limitations & Sources (Educate Users When Relevant):
         sheet.append_row(bot_row_data)
         print("DEBUG: Logged to Sheets")
 
-        save_user_memory()
+        save_memory()
         return bot_reply
 
     except asyncio.TimeoutError:
         timeout_reply = "感謝您的耐心等待——我在這裡。請繼續分享您的故事。"
-        user_history.append(AIMessage(content=timeout_reply))
-        save_user_memory()
+        history.append(AIMessage(content=timeout_reply))
+        save_memory()
         return timeout_reply
 
     except Exception as e:
         print("Agent error:", str(e))
         traceback.print_exc()
         fallback = "我在傾聽。請隨時分享您的故事。"
-        user_history.append(AIMessage(content=fallback))
-        save_user_memory()
+        history.append(AIMessage(content=fallback))
+        save_memory()
         return fallback
