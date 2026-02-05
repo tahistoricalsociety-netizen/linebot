@@ -124,24 +124,6 @@ async def get_agent_response(user_message: str, user_id: str, is_voice: bool = F
 
     msg_lower = user_message.lower()
 
-# Admin wipe command (only works for your user ID)
-ADMIN_USER_ID = "U55128743f58c5a5d1f81990a8dae3d89"  # ← YOUR user ID
-if user_id == ADMIN_USER_ID and "wipe memory" in msg_lower:
-    if "all" in msg_lower:
-        conversations.clear()
-        user_profiles.clear()
-        save_memory()
-        return "所有記憶已清除！已重置所有用戶資料。"
-    elif "user" in msg_lower:
-        target_id = msg_lower.split("user")[-1].strip()
-        if target_id in conversations:
-            del conversations[target_id]
-            del user_profiles[target_id]
-            save_memory()
-            return f"用戶 {target_id} 的記憶已清除！"
-        else:
-            return "找不到該用戶記憶。"
-
     # Special cases: join / help
     join_keywords = ["加入群組", "剛加入", "第一次加入", "新加入", "剛加進來", "剛進群", "新成員"]
     if any(kw in msg_lower for kw in join_keywords):
@@ -170,6 +152,36 @@ if user_id == ADMIN_USER_ID and "wipe memory" in msg_lower:
             )
         else:
             bot_reply = None
+
+    # Admin wipe command (only for your user ID)
+    ADMIN_USER_ID = "U55128743f58c5a5d1f81990a8dae3d89"  # ← Replace with YOUR actual LINE user ID
+    if user_id == ADMIN_USER_ID and msg_lower.startswith("wipe memory"):
+        parts = msg_lower.split()
+        if len(parts) < 3:
+            return "指令格式錯誤。使用：wipe memory all 或 wipe memory user [user_id]"
+        
+        action = parts[2]
+        if action == "all":
+            conversations.clear()
+            user_profiles.clear()
+            save_memory()
+            print(f"DEBUG: All memory wiped by admin {user_id}")
+            return "所有記憶已清除！已重置所有用戶資料。"
+        
+        elif action == "user" and len(parts) >= 4:
+            target_id = parts[3]
+            if target_id in conversations:
+                del conversations[target_id]
+                if target_id in user_profiles:
+                    del user_profiles[target_id]
+                save_memory()
+                print(f"DEBUG: Memory wiped for user {target_id} by admin {user_id}")
+                return f"用戶 {target_id} 的記憶已清除！"
+            else:
+                return f"找不到用戶 {target_id} 的記憶。"
+        
+        else:
+            return "未知指令。支援：all 或 user [user_id]"
 
     # Voice transcription
     if is_voice:
