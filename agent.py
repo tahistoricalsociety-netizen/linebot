@@ -259,6 +259,7 @@ Memory & Tone:
 - Never repeat information or summarize past messages unless the user asks.
 - Speak in a calm, respectful, and caring tone—like a trusted friend and archivist honoring treasured memories.
 """
+        })
 
         # Initialize user profile tracking
         user_profiles[user_id] = {
