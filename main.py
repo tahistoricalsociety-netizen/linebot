@@ -14,7 +14,7 @@ from linebot.models import (
     AudioMessage,
     ImageMessage,
     TextSendMessage,
-    JoinEvent
+    JoinEvent  # Added for group join detection
 )
 from agent import get_agent_response, transcribe_audio
 
@@ -63,9 +63,9 @@ def handle_message(event):
     if isinstance(event.message, TextMessage):
         message_text = event.message.text.strip()
 
-    # Ignore ads, spam, or non-meaningful messages
-    if is_ad_or_spam(message_text):
-        print("Ignored: ad/spam/non-text message")
+    # Ignore ads/spam only in groups (not in private 1:1)
+    if is_group and is_ad_or_spam(message_text):
+        print("Ignored in group: ad/spam/non-text message")
         return
 
     # Check if bot was @mentioned (only relevant in groups)
@@ -74,14 +74,8 @@ def handle_message(event):
         bot_name = line_bot_api.get_bot_info().display_name or "Echo"
         bot_mentioned = f"@{bot_name}" in message_text or f"@{bot_name.lower()}" in message_text.lower()
 
-    # Only reply if:
-    # - Private chat (1:1)
-    # - OR group chat AND bot was @mentioned
-    should_reply = not is_group or bot_mentioned
-
-    if not should_reply:
-        print("Silent in group: no @mention")
-        return
+    # Reply only if private chat OR group with @mention
+    reply_in_group = is_group and bot_mentioned
 
     try:
         if isinstance(event.message, ImageMessage):
@@ -104,7 +98,6 @@ def handle_message(event):
             print(f"Message: {user_message}")
             reply_text = asyncio.run(get_agent_response(user_message, user_id))
 
-        # Send reply (in group or private)
         line_bot_api.reply_message(
             reply_token,
             TextSendMessage(text=reply_text)
@@ -114,7 +107,6 @@ def handle_message(event):
     except Exception as e:
         print("Error in handle_message:", str(e))
         traceback.print_exc()
-        # Only send fallback in private chat (never in group)
         if not is_group:
             try:
                 line_bot_api.reply_message(
@@ -139,14 +131,16 @@ def handle_join(event):
     # Check if this is the first join (avoid repeat announcements)
     if not is_group_already_introduced(group_id):
         intro_message = (
-    "大家好！我是 Echo（歲月有聲），臺灣美國歷史學會（TAHS）的AI故事夥伴～\n"
-    "我的任務是幫大家保存臺灣美國人的家族故事與回憶。\n\n"
-    "在群組裡，我會保持安靜，除非你們 @Echo 我才會回應。\n"
-    "想跟我單獨聊天？直接私訊我（或 @Echo 發訊息），我會立刻私下回覆你，不會打擾群組。\n\n"
-    "建議先加我為好友（搜尋 @081virdq），這樣我可以直接私訊你故事內容、語音轉文字或回應～\n\n"
-    "隨時可以把我踢出群組，再加回來也完全沒問題！\n"
-    "很高興認識大家，有故事想分享，歡迎 @我 或私訊我喔～"
-)
+            "大家好！我是 Echo（歲月有聲），臺灣美國歷史學會（TAHS）的AI故事紀錄者。\n"
+            "我的任務是幫大家保存臺灣美國人的家族故事與回憶。\n"
+            "在群組裡，我會保持安靜，除非你們 @Echo 我才會回應。\n"
+            "想跟我單獨聊天？直接 @Echo 發訊息即可（語音、文字都行）。\n"
+            "我會私下回覆你個人，不會打擾群組。\n"
+            "如果想讓我公開回覆，就在群組裡 @Echo + 問題～\n"
+            "建議先加我為好友（搜尋 @081virdq），這樣我可以直接私訊回覆你的故事，不會打擾群組～\n"
+            "隨時可以把我踢出群組，再重新邀請也沒問題！\n"
+            "很高興認識大家，有故事想分享，歡迎 @我喔～"
+        )
 
         try:
             line_bot_api.push_message(
