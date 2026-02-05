@@ -169,50 +169,25 @@ async def get_agent_response(user_message: str, user_id: str, is_voice: bool = F
             "隨時可以把我踢出群組，再加回來也完全沒問題！\n"
             "很高興認識大家，有故事想分享，歡迎 @我 或私訊我喔～"
         )
-        return bot_reply
-
-    # 2. Detect help / instruction request
-    help_keywords = ["說明", "怎麼用", "使用說明", "help", "怎麼玩", "介紹自己", "教學", "指南", "怎麼操作", "使用方法"]
-    if any(kw in msg_lower for kw in help_keywords):
-        print("DEBUG: Detected help/instruction request")
-        bot_reply = (
-            "大家好！我是 Echo（歲月有聲），TAHS的AI故事夥伴。\n"
-            "在群組裡我保持安靜，除非被 @Echo 提到才會回應。\n\n"
-            "使用方式很簡單：\n"
-            "1. 想跟我單獨聊天 → 直接私訊我（或 @Echo 發訊息），我會私下回覆你\n"
-            "2. 想讓大家看到我的回覆 → 在群組裡 @Echo + 內容（我會在群組公開回覆）\n\n"
-            "語音、文字都可以，我會用 OpenAI 轉錄語音。\n"
-            "建議先加我為好友（搜尋 @081virdq），這樣我可以直接私訊回覆你的故事，不會打擾群組～\n\n"
-            "隨時覺得不方便，都可以把我踢出群組，再加回來也完全沒問題！\n"
-            "有什麼想問或分享的，歡迎 @我 或私訊我喔～"
-        )
-        return bot_reply
-
-    # 3. Detect story-related message in group (to trigger private follow-up)
-    if group_id and not is_voice:  # Only trigger in group, non-voice messages
-        story_keywords = ["故事", "家族", "回憶", "過去", "臺灣", "美國", "移民", "經歷", "小時候", "爺爺", "奶奶", "爸爸", "媽媽", "老家", "童年", "歷史", "分享", "講", "說", "以前", "當年"]
-        is_story_like = any(kw in msg_lower for kw in story_keywords) and len(msg_lower) > 50  # Increased to 50 chars to reduce false positives
-
-        if is_story_like:
-            last_followup = user_profiles[user_id].get("last_followup_time")
-            can_followup = not last_followup or (current_time - datetime.fromisoformat(last_followup)) > timedelta(minutes=5)  # Reduced to 5 minutes
-
-            if can_followup:
-                try:
-                    # Send private DM to ask for more details
-                    line_bot_api.push_message(
-                        user_id,
-                        TextSendMessage(text=(
-                            "謝謝您在群組分享的故事片段！聽起來很有意義～\n"
-                            "如果方便的話，能否私下多告訴我一些細節？例如當時的心情、周圍環境，或您家人的反應？\n"
-                            "我會用心記錄，幫助您把故事完整保存下來。期待您的分享！"
-                        ))
-                    )
-                    user_profiles[user_id]["last_followup_time"] = current_time.isoformat()
-                    print(f"DEBUG: Sent private story follow-up DM to {user_id}")
-                except Exception as e:
-                    print(f"Private DM failed (likely not friended): {e}")
-                    # Silent — no group notification
+        # Continue to log even for special replies
+    else:
+        # 2. Detect help / instruction request
+        help_keywords = ["說明", "怎麼用", "使用說明", "help", "怎麼玩", "介紹自己", "教學", "指南", "怎麼操作", "使用方法"]
+        if any(kw in msg_lower for kw in help_keywords):
+            print("DEBUG: Detected help/instruction request")
+            bot_reply = (
+                "大家好！我是 Echo（歲月有聲），TAHS的AI故事夥伴。\n"
+                "在群組裡我保持安靜，除非被 @Echo 提到才會回應。\n\n"
+                "使用方式很簡單：\n"
+                "1. 想跟我單獨聊天 → 直接私訊我（或 @Echo 發訊息），我會私下回覆你\n"
+                "2. 想讓大家看到我的回覆 → 在群組裡 @Echo + 內容（我會在群組公開回覆）\n\n"
+                "語音、文字都可以，我會用 OpenAI 轉錄語音。\n"
+                "建議先加我為好友（搜尋 @081virdq），這樣我可以直接私訊回覆你的故事，不會打擾群組～\n\n"
+                "隨時覺得不方便，都可以把我踢出群組，再加回來也完全沒問題！\n"
+                "有什麼想問或分享的，歡迎 @我 或私訊我喔～"
+            )
+        else:
+            bot_reply = None  # No special reply
 
     # Handle voice message transcription first
     if is_voice:
@@ -220,7 +195,7 @@ async def get_agent_response(user_message: str, user_id: str, is_voice: bool = F
         user_message = f"[Voice message transcribed]: {transcribed}"
         print(f"DEBUG: Voice transcribed → {user_message}")
 
-    # Initialize new conversation
+    # Initialize new conversation if needed
     if user_id not in conversations:
         conversations[user_id] = []
         conversations[user_id].append({
@@ -276,7 +251,7 @@ Incorrect or assumed information about important people, events, or personal det
 """
         })
 
-        # Initialize user profile tracking with last_followup_time
+        # Initialize user profile tracking
         user_profiles[user_id] = {
             "first_interaction": current_time.strftime("%Y-%m-%d %H:%M:%S"),
             "last_message_time": current_time.isoformat(),
@@ -285,7 +260,7 @@ Incorrect or assumed information about important people, events, or personal det
             "display_name": "Fetching...",
             "username": "",
             "picture_url": "",
-            "last_followup_time": None  # NEW: track last private DM time
+            "last_followup_time": None  # track last private DM time
         }
 
     history = conversations[user_id]
@@ -329,23 +304,21 @@ Incorrect or assumed information about important people, events, or personal det
         except:
             pass
 
-    # Add transcribed or original message to history
+    # Always add the user message to history (even silent group messages)
     history.append(HumanMessage(content=user_message))
 
-    # === NEW: Group story detection & private follow-up ===
-    if group_id and not is_voice:  # Only trigger in group, non-voice messages
+    # === Group story detection & private follow-up ===
+    if group_id and not is_voice:  # Only in group, non-voice messages
         story_keywords = ["故事", "家族", "回憶", "過去", "臺灣", "美國", "移民", "經歷", "小時候", "爺爺", "奶奶", "爸爸", "媽媽", "老家", "童年", "歷史", "分享", "講", "說", "以前", "當年"]
-        # Reduce false positives: require at least 2 keywords + longer text
-        matching_keywords = [kw for kw in story_keywords if kw in msg_lower]
-        is_story_like = len(matching_keywords) >= 2 and len(msg_lower) > 50
+        matching = [kw for kw in story_keywords if kw in msg_lower]
+        is_story_like = len(matching) >= 2 and len(msg_lower) > 50  # 2+ keywords + length
 
         if is_story_like:
             last_followup = user_profiles[user_id].get("last_followup_time")
-            can_followup = not last_followup or (current_time - datetime.fromisoformat(last_followup)) > timedelta(minutes=5)  # Reduced to 5 minutes
+            can_followup = not last_followup or (current_time - datetime.fromisoformat(last_followup)) > timedelta(minutes=5)
 
             if can_followup:
                 try:
-                    # Send private DM to ask for more details
                     line_bot_api.push_message(
                         user_id,
                         TextSendMessage(text=(
@@ -360,33 +333,51 @@ Incorrect or assumed information about important people, events, or personal det
                     print(f"Private DM failed (likely not friended): {e}")
                     # Silent — no group notification
 
-    # Define prompt and chain (no tools)
+    # Decide if we should generate a bot reply
+    should_reply = not group_id or (group_id and bot_mentioned)  # private or @mentioned in group
+
+    if not should_reply:
+        # Log silent group message
+        profile = user_profiles[user_id]
+        row_data = [
+            timestamp,
+            user_id,
+            "User (silent group)",
+            user_message,
+            "",
+            profile.get("display_name", "Unknown"),
+            profile.get("username", ""),
+            profile.get("picture_url", ""),
+            profile.get("first_interaction", ""),
+            profile.get("total_messages", 0),
+            profile.get("language_preference", "繁體中文"),
+            group_id or ""
+        ]
+        try:
+            sheet.append_row(row_data)
+            print("DEBUG: Silent group message logged to Sheets")
+        except Exception as e:
+            print("Sheets error (silent group):", str(e))
+
+        save_memory()
+        return ""  # No reply
+
+    # Normal LLM reply
     prompt = ChatPromptTemplate.from_messages([
         MessagesPlaceholder(variable_name="history"),
     ])
     chain = prompt | llm
 
     try:
-        # Async invoke with timeout
         response = await asyncio.wait_for(
             chain.ainvoke({"history": history}),
             timeout=12.0
         )
+        bot_reply = response.content or "我在這裡傾聽您的故事。如果有什麼想分享的，請繼續告訴我，好嗎？"
 
-        bot_reply = response.content or ""
-
-        # Ensure reply is never empty
-        if not bot_reply or bot_reply.strip() == "":
-            bot_reply = "我在這裡傾聽您的故事。如果有什麼想分享的，請繼續告訴我，好嗎？"
-
-        # Save bot reply to history
         history.append(AIMessage(content=bot_reply))
 
-        # === Record to Google Sheets (group_id in column L) ===
-        timestamp = current_time.strftime("%Y-%m-%d %H:%M:%S")
         profile = user_profiles[user_id]
-
-        # User/transcribed row
         row_data = [
             timestamp,
             user_id,
@@ -399,12 +390,8 @@ Incorrect or assumed information about important people, events, or personal det
             profile.get("first_interaction", ""),
             profile.get("total_messages", 0),
             profile.get("language_preference", "繁體中文"),
-            group_id or "" # NEW: group_id column (empty for 1:1)
+            group_id or ""
         ]
-
-        print(f"DEBUG: Attempting to append user row: {row_data}")
-
-        # Bot reply row
         bot_row_data = row_data.copy()
         bot_row_data[2] = "Bot"
         bot_row_data[3] = bot_reply
@@ -412,19 +399,12 @@ Incorrect or assumed information about important people, events, or personal det
 
         try:
             sheet.append_row(row_data)
-            print("DEBUG: User row appended successfully")
-        except Exception as e:
-            print("Sheets error (user row):", str(e))
-
-        try:
             sheet.append_row(bot_row_data)
-            print("DEBUG: Bot row appended successfully")
+            print("DEBUG: Normal reply logged to Sheets")
         except Exception as e:
-            print("Sheets error (bot row):", str(e))
+            print("Sheets error:", str(e))
 
-        # === Save Persistent Memory ===
         save_memory()
-
         return bot_reply
 
     except asyncio.TimeoutError:
