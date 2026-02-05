@@ -149,11 +149,11 @@ async def transcribe_audio(message_id: str) -> str:
         traceback.print_exc()
         return "語音轉文字失敗，請用文字分享或再試一次。"
 
-async def get_agent_response(user_message: str, user_id: str, is_voice: bool = False, message_id: str = None) -> str:
+async def get_agent_response(user_message: str, user_id: str, is_voice: bool = False, message_id: str = None, group_id: str = None) -> str:
     current_time = datetime.now()
     timestamp = current_time.strftime("%Y-%m-%d %H:%M:%S")
 
-    # Normalize for keyword matching (case-insensitive)
+    # Normalize for keyword matching
     msg_lower = user_message.lower()
 
     # 1. Detect group join / first-time intro request
@@ -188,19 +188,22 @@ async def get_agent_response(user_message: str, user_id: str, is_voice: bool = F
         )
         return bot_reply
 
-    # If not join/help → continue with normal flow
+    # 3. Detect story-related message in group (to trigger private follow-up)
+    story_keywords = ["故事", "家族", "回憶", "過去", "臺灣", "美國", "移民", "經歷", "小時候", "爺爺", "奶奶", "爸爸", "媽媽", "老家", "童年", "歷史", "經歷", "分享"]
+    is_story_like = any(kw in msg_lower for kw in story_keywords) and len(msg_lower) > 30
+
     # Handle voice message transcription first
     if is_voice:
         transcribed = await transcribe_audio(message_id)
         user_message = f"[Voice message transcribed]: {transcribed}"
-        print(f"DEBUG: Voice transcribed → {user_message}")  # Debug print
+        print(f"DEBUG: Voice transcribed → {user_message}")
 
     # Initialize new conversation
     if user_id not in conversations:
         conversations[user_id] = []
         conversations[user_id].append({
             "role": "system",
-           "content": """
+            "content": """
 You are Echo (歲月有聲), a dedicated historiographer for the Taiwanese American Historical Society (TAHS), devoted to collecting and preserving the diverse personal stories of Taiwanese Americans and their families’ connections to both Taiwan and the United States.
 
 Your primary focus is on:
@@ -217,22 +220,6 @@ Conversation Flow Guidelines:
 - Introduce yourself and TAHS’s mission only in the very first message.
 - Respond in the language the user is currently using (English if they ask for it, Traditional Chinese otherwise).
 - If the user says "English please" or similar, immediately switch to English and stay in English for the rest of the conversation.
-
-Your Capabilities (Only share if asked, keep list concise):
-1. Conversation: Engage in chats, answer questions, and provide suggestions based on shared stories.
-2. Knowledge lookup: Provide information from training data (up to 2023 cutoff) on history, science, culture; use tools for current web/X searches.
-3. Language translation: Basic translation between Chinese and English.
-4. Text analysis: Extract key concepts from user messages.
-5. Text generation: Create stories or summaries from user input.
-6. Voice transcription: Convert voice messages to text using OpenAI Whisper API.
-7. Answering questions: Explain based on shared details or verified knowledge.
-
-Your Limitations (Only share if asked):
-1. No real-time external data without tools (e.g., no live news unless searched).
-2. No complex calculations without code tool.
-3. No personal opinions or emotions — only warm, respectful tone.
-4. Text-only responses; no voice/video output.
-5. Cannot guess or infer unshared details — always ask for clarification.
 
 Group Chat Behavior (Important):
 - In LINE group chats, stay completely silent unless directly @mentioned (e.g., @Echo or @歲月有聲).
@@ -265,10 +252,15 @@ Memory & Tone:
 - Always remember and naturally reference prior details shared.
 - Never repeat information or summarize past messages unless the user asks.
 - Speak in a calm, respectful, and caring tone—like a trusted friend and archivist honoring treasured memories.
+- **Never guess, infer, or make up any personal information, historical events, dates, names, people, places, or details that the user has not explicitly shared with you**. If you are uncertain, do not fill in gaps or make assumptions — this can seriously discourage users from continuing to share. Instead, respond with gentle curiosity and redirect to their lived experience, e.g.:
+  - "這段歷史聽起來很深刻，能否再多告訴我您當時的親身感受或細節？"
+  - "我很想聽您自己的經歷，這部分我完全依賴您的分享。"
+  - "我記得您之前提到過[已知細節]，請繼續說，我在用心傾聽。"
+Incorrect or assumed information about important people, events, or personal details can break trust — always stay 100% faithful to what the user has actually told you.
 """
         })
 
-        # Initialize user profile tracking with last_message_time
+        # Initialize user profile tracking
         user_profiles[user_id] = {
             "first_interaction": current_time.strftime("%Y-%m-%d %H:%M:%S"),
             "last_message_time": current_time.isoformat(),
@@ -276,7 +268,8 @@ Memory & Tone:
             "language_preference": "繁體中文",
             "display_name": "Fetching...",
             "username": "",
-            "picture_url": ""
+            "picture_url": "",
+            "last_followup_time": None  # NEW: track last private DM time
         }
 
     history = conversations[user_id]
@@ -323,6 +316,32 @@ Memory & Tone:
     # Add transcribed or original message to history
     history.append(HumanMessage(content=user_message))
 
+    # === NEW: Group story detection & private follow-up ===
+    if group_id and not is_voice:  # Only trigger in group, non-voice messages
+        story_keywords = ["故事", "家族", "回憶", "過去", "臺灣", "美國", "移民", "經歷", "小時候", "爺爺", "奶奶", "爸爸", "媽媽", "老家", "童年", "歷史", "分享", "講", "說", "以前", "當年"]
+        is_story_like = any(kw in msg_lower for kw in story_keywords) and len(msg_lower) > 30
+
+        if is_story_like:
+            last_followup = user_profiles[user_id].get("last_followup_time")
+            can_followup = not last_followup or (current_time - datetime.fromisoformat(last_followup)) > timedelta(hours=24)
+
+            if can_followup:
+                try:
+                    # Send private DM to ask for more details
+                    line_bot_api.push_message(
+                        user_id,
+                        TextSendMessage(text=(
+                            "謝謝您在群組分享的故事片段！聽起來很有意義～\n"
+                            "如果方便的話，能否私下多告訴我一些細節？例如當時的心情、周圍環境，或您家人的反應？\n"
+                            "我會用心記錄，幫助您把故事完整保存下來。期待您的分享！"
+                        ))
+                    )
+                    user_profiles[user_id]["last_followup_time"] = current_time.isoformat()
+                    print(f"DEBUG: Sent private story follow-up DM to {user_id}")
+                except Exception as e:
+                    print(f"Private DM failed (likely not friended): {e}")
+                    # Silent — no group notification
+
     # Define prompt and chain (no tools)
     prompt = ChatPromptTemplate.from_messages([
         MessagesPlaceholder(variable_name="history"),
@@ -345,37 +364,37 @@ Memory & Tone:
         # Save bot reply to history
         history.append(AIMessage(content=bot_reply))
 
-        # === Record to Google Sheets ===
+        # === Record to Google Sheets (group_id in column L) ===
         timestamp = current_time.strftime("%Y-%m-%d %H:%M:%S")
         profile = user_profiles[user_id]
 
-        # User/transcribed row
+        # User/transcribed row (12 columns, L = group_id)
         row_data = [
-            timestamp,
-            user_id,
-            "User" if not is_voice else "Voice (transcribed)",
-            user_message,
-            "[Voice]" if is_voice else "",
-            profile.get("display_name", "Unknown"),
-            profile.get("username", ""),
-            profile.get("picture_url", ""),
-            profile.get("first_interaction", ""),
-            profile.get("total_messages", 0),
-            profile.get("language_preference", "繁體中文")
+            timestamp,                    # A
+            user_id,                      # B
+            "User" if not is_voice else "Voice (transcribed)",  # C
+            user_message,                 # D
+            "[Voice]" if is_voice else "",  # E
+            profile.get("display_name", "Unknown"),  # F
+            profile.get("username", ""),  # G
+            profile.get("picture_url", ""),  # H
+            profile.get("first_interaction", ""),  # I
+            profile.get("total_messages", 0),  # J
+            profile.get("language_preference", "繁體中文"),  # K
+            group_id or ""                # L ← group_id
         ]
 
-        # Debug print AFTER row_data is defined
-        print(f"DEBUG: Attempting to append user row: {row_data}")
+        print(f"DEBUG: Attempting to append user row (12 columns): {row_data}")
 
         # Bot reply row
         bot_row_data = row_data.copy()
-        bot_row_data[2] = "Bot"
-        bot_row_data[3] = bot_reply
-        bot_row_data[4] = "TAHS Interview"
+        bot_row_data[2] = "Bot"              # C
+        bot_row_data[3] = bot_reply          # D
+        bot_row_data[4] = "TAHS Interview"   # E
 
         try:
             sheet.append_row(row_data)
-            print("DEBUG: User row appended successfully")
+            print("DEBUG: User row appended successfully (column L = group_id)")
         except Exception as e:
             print("Sheets error (user row):", str(e))
 
