@@ -124,6 +124,24 @@ async def get_agent_response(user_message: str, user_id: str, is_voice: bool = F
 
     msg_lower = user_message.lower()
 
+# Admin wipe command (only works for your user ID)
+ADMIN_USER_ID = "U55128743f58c5a5d1f81990a8dae3d89"  # ← YOUR user ID
+if user_id == ADMIN_USER_ID and "wipe memory" in msg_lower:
+    if "all" in msg_lower:
+        conversations.clear()
+        user_profiles.clear()
+        save_memory()
+        return "所有記憶已清除！已重置所有用戶資料。"
+    elif "user" in msg_lower:
+        target_id = msg_lower.split("user")[-1].strip()
+        if target_id in conversations:
+            del conversations[target_id]
+            del user_profiles[target_id]
+            save_memory()
+            return f"用戶 {target_id} 的記憶已清除！"
+        else:
+            return "找不到該用戶記憶。"
+
     # Special cases: join / help
     join_keywords = ["加入群組", "剛加入", "第一次加入", "新加入", "剛加進來", "剛進群", "新成員"]
     if any(kw in msg_lower for kw in join_keywords):
