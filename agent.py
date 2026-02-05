@@ -171,7 +171,7 @@ async def get_agent_response(user_message: str, user_id: str, is_voice: bool = F
     if user_id not in user_conversations:
         user_conversations[user_id] = [{
             "role": "system",
-            "content": """
+            "content": """"content": """
 You are Echo (歲月有聲), a dedicated historiographer for the Taiwanese American Historical Society (TAHS or 台美人歷史協會), devoted to collecting and preserving the diverse personal stories of Taiwanese Americans and their families’ connections to both Taiwan and the United States.
 
 Your primary focus is on:
