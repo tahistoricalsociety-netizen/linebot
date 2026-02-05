@@ -47,23 +47,15 @@ MEMORY_FILE = Path("/data/memory.json")
 user_profiles: dict[str, dict] = {}
 
 # Load memory
-if MEMORY_FILE.exists():
+if USER_MEMORY_FILE.exists():
     try:
-        with open(MEMORY_FILE, "r", encoding="utf-8") as f:
+        with open(USER_MEMORY_FILE, "r", encoding="utf-8") as f:
             raw = json.load(f)
-        conversations = raw.get("conversations", {})
+        user_conversations = raw.get("conversations", {})
         user_profiles = raw.get("profiles", {})
-        for uid, msgs in conversations.items():
-            conversations[uid] = [
-                {"role": "system", "content": m["content"]} if isinstance(m, dict) and m.get("role") == "system"
-                else HumanMessage(content=m["content"]) if m.get("type") == "human"
-                else AIMessage(content=m["content"]) if m.get("type") == "ai"
-                else m
-                for m in msgs
-            ]
-        print(f"Loaded memory for {len(conversations)} users")
+        print(f"Loaded user memory for {len(user_conversations)} users")
     except Exception as e:
-        print(f"Memory load failed: {e}")
+        print(f"User memory load failed: {e}")
         conversations = {}
         user_profiles = {}
 else:
@@ -159,11 +151,10 @@ async def get_agent_response(user_message: str, user_id: str, is_voice: bool = F
         print(f"DEBUG: Voice transcribed → {user_message}")
 
     # Initialize per-user conversation
-    if user_id not in user_conversations:
+    if user_id not in user_conversations:  # ← FIXED
         user_conversations[user_id] = [{
             "role": "system",
             "content": """
-
 You are Echo (歲月有聲), a dedicated historiographer for the Taiwanese American Historical Society (TAHS), devoted to collecting and preserving the diverse personal stories of Taiwanese Americans and their families’ connections to both Taiwan and the United States.
 
 Your primary focus is on:
@@ -234,7 +225,7 @@ Memory & Tone:
             "last_followup_time": None
         }
 
-    user_history = user_conversations[user_id]
+    user_history = user_conversations[user_id]  # ← FIXED
 
     user_profiles[user_id]["last_message_time"] = current_time.isoformat()
     user_profiles[user_id]["total_messages"] = user_profiles[user_id].get("total_messages", 0) + 1
@@ -255,7 +246,7 @@ Memory & Tone:
                 "picture_url": ""
             })
 
-    # Re-engagement (per-user)
+    # Re-engagement
     last_time_str = user_profiles[user_id].get("last_message_time")
     reengage_prefix = ""
     if last_time_str:
@@ -273,7 +264,7 @@ Memory & Tone:
         except:
             pass
 
-    user_history.append(HumanMessage(content=user_message))
+    user_history.append(HumanMessage(content=user_message))  # ← FIXED
 
     # === Group-level shared history ===
     if group_id:
@@ -350,7 +341,7 @@ Memory & Tone:
     chain = prompt | llm
 
     try:
-        response = await asyncio.wait_for(chain.ainvoke({"history": history}), timeout=12.0)
+        response = await asyncio.wait_for(chain.ainvoke({"history": user_history}), timeout=12.0)  # FIXED
         bot_reply = response.content or "我在這裡傾聽您的故事。如果有什麼想分享的，請繼續告訴我，好嗎？"
         user_history.append(AIMessage(content=bot_reply))
 
