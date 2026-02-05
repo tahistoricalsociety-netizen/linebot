@@ -14,7 +14,7 @@ from linebot.models import (
     AudioMessage,
     ImageMessage,
     TextSendMessage,
-    JoinEvent  # ← Added for group join detection
+    JoinEvent
 )
 from agent import get_agent_response, transcribe_audio
 
@@ -58,20 +58,30 @@ def handle_message(event):
 
     print(f"\n=== New message from {user_id} (group: {group_id}) ===")
 
+    # Get message text if it's text
     message_text = ""
     if isinstance(event.message, TextMessage):
         message_text = event.message.text.strip()
 
+    # Ignore ads, spam, or non-meaningful messages
     if is_ad_or_spam(message_text):
         print("Ignored: ad/spam/non-text message")
         return
 
+    # Check if bot was @mentioned (only relevant in groups)
     bot_mentioned = False
     if is_group and message_text:
         bot_name = line_bot_api.get_bot_info().display_name or "Echo"
         bot_mentioned = f"@{bot_name}" in message_text or f"@{bot_name.lower()}" in message_text.lower()
 
-    reply_in_group = is_group and bot_mentioned
+    # Only reply if:
+    # - Private chat (1:1)
+    # - OR group chat AND bot was @mentioned
+    should_reply = not is_group or bot_mentioned
+
+    if not should_reply:
+        print("Silent in group: no @mention")
+        return
 
     try:
         if isinstance(event.message, ImageMessage):
@@ -94,6 +104,7 @@ def handle_message(event):
             print(f"Message: {user_message}")
             reply_text = asyncio.run(get_agent_response(user_message, user_id))
 
+        # Send reply (in group or private)
         line_bot_api.reply_message(
             reply_token,
             TextSendMessage(text=reply_text)
@@ -103,6 +114,7 @@ def handle_message(event):
     except Exception as e:
         print("Error in handle_message:", str(e))
         traceback.print_exc()
+        # Only send fallback in private chat (never in group)
         if not is_group:
             try:
                 line_bot_api.reply_message(
