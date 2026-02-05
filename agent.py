@@ -149,34 +149,6 @@ async def transcribe_audio(message_id: str) -> str:
         traceback.print_exc()
         return "語音轉文字失敗，請用文字分享或再試一次。"
 
-# === NEW: Prioritize zh.wikipedia.org for Taiwan-related searches ===
-async def search_zh_wikipedia_first(query: str) -> str:
-    """Search zh.wikipedia.org first, fall back to general web if nothing found."""
-    print(f"DEBUG: Searching zh.wikipedia.org for: {query}")
-
-    # Step 1: Try site-specific search on zh.wikipedia
-    zh_search_query = f"{query} site:zh.wikipedia.org"
-    # Use your existing web_search tool or API call here
-    # For simplicity, assuming you have a search function; replace with actual call
-    results = await web_search(zh_search_query, num_results=5)  # ← replace with your search function
-
-    if results and "zh.wikipedia.org" in results[0].get("url", ""):
-        # Get the top zh.wikipedia page and browse it
-        top_url = results[0]["url"]
-        print(f"DEBUG: Found zh.wikipedia page: {top_url}")
-        summary = await browse_page(top_url, instructions="Summarize the article in Traditional Chinese, focusing on key facts relevant to the query.")
-        return summary
-
-    # Step 2: Fallback to general search if no good zh result
-    print("DEBUG: No good zh.wikipedia result, falling back to general search")
-    general_results = await web_search(query, num_results=5)
-    if general_results:
-        top_url = general_results[0]["url"]
-        summary = await browse_page(top_url, instructions="Summarize the top result in Traditional Chinese.")
-        return summary
-
-    return "抱歉，找不到相關資訊。請提供更多細節，我會繼續幫您查找！"
-
 async def get_agent_response(user_message: str, user_id: str, is_voice: bool = False, message_id: str = None, group_id: str = None) -> str:
     current_time = datetime.now()
     timestamp = current_time.strftime("%Y-%m-%d %H:%M:%S")
@@ -184,6 +156,7 @@ async def get_agent_response(user_message: str, user_id: str, is_voice: bool = F
     # Normalize for keyword matching
     msg_lower = user_message.lower()
 
+    # Special cases (join/help) — always reply if triggered, even in private
     # 1. Detect group join / first-time intro request
     join_keywords = ["加入群組", "剛加入", "第一次加入", "新加入", "剛加進來", "剛進群", "新成員"]
     if any(kw in msg_lower for kw in join_keywords):
@@ -197,25 +170,24 @@ async def get_agent_response(user_message: str, user_id: str, is_voice: bool = F
             "隨時可以把我踢出群組，再加回來也完全沒問題！\n"
             "很高興認識大家，有故事想分享，歡迎 @我 或私訊我喔～"
         )
-        # Still log this message
-    else:
-        # 2. Detect help / instruction request
-        help_keywords = ["說明", "怎麼用", "使用說明", "help", "怎麼玩", "介紹自己", "教學", "指南", "怎麼操作", "使用方法"]
-        if any(kw in msg_lower for kw in help_keywords):
-            print("DEBUG: Detected help/instruction request")
-            bot_reply = (
-                "大家好！我是 Echo（歲月有聲），TAHS的AI故事夥伴。\n"
-                "在群組裡我保持安靜，除非被 @Echo 提到才會回應。\n\n"
-                "使用方式很簡單：\n"
-                "1. 想跟我單獨聊天 → 直接私訊我（或 @Echo 發訊息），我會私下回覆你\n"
-                "2. 想讓大家看到我的回覆 → 在群組裡 @Echo + 內容（我會在群組公開回覆）\n\n"
-                "語音、文字都可以，我會用 OpenAI 轉錄語音。\n"
-                "建議先加我為好友（搜尋 @081virdq），這樣我可以直接私訊回覆你的故事，不會打擾群組～\n\n"
-                "隨時覺得不方便，都可以把我踢出群組，再加回來也完全沒問題！\n"
-                "有什麼想問或分享的，歡迎 @我 或私訊我喔～"
-            )
-        else:
-            bot_reply = None
+        return bot_reply
+
+    # 2. Detect help / instruction request
+    help_keywords = ["說明", "怎麼用", "使用說明", "help", "怎麼玩", "介紹自己", "教學", "指南", "怎麼操作", "使用方法"]
+    if any(kw in msg_lower for kw in help_keywords):
+        print("DEBUG: Detected help/instruction request")
+        bot_reply = (
+            "大家好！我是 Echo（歲月有聲），TAHS的AI故事夥伴。\n"
+            "在群組裡我保持安靜，除非被 @Echo 提到才會回應。\n\n"
+            "使用方式很簡單：\n"
+            "1. 想跟我單獨聊天 → 直接私訊我（或 @Echo 發訊息），我會私下回覆你\n"
+            "2. 想讓大家看到我的回覆 → 在群組裡 @Echo + 內容（我會在群組公開回覆）\n\n"
+            "語音、文字都可以，我會用 OpenAI 轉錄語音。\n"
+            "建議先加我為好友（搜尋 @081virdq），這樣我可以直接私訊回覆你的故事，不會打擾群組～\n\n"
+            "隨時覺得不方便，都可以把我踢出群組，再加回來也完全沒問題！\n"
+            "有什麼想問或分享的，歡迎 @我 或私訊我喔～"
+        )
+        return bot_reply
 
     # Handle voice message transcription first
     if is_voice:
@@ -342,7 +314,7 @@ Incorrect or assumed information about important people, events, or personal det
     history.append(HumanMessage(content=user_message))
 
     # === Group story detection & private follow-up ===
-    if group_id and not is_voice:
+    if group_id and not is_voice:  # Only trigger in group, non-voice messages
         story_keywords = ["故事", "家族", "回憶", "過去", "臺灣", "美國", "移民", "經歷", "小時候", "爺爺", "奶奶", "爸爸", "媽媽", "老家", "童年", "歷史", "分享", "講", "說", "以前", "當年"]
         matching = [kw for kw in story_keywords if kw in msg_lower]
         is_story_like = len(matching) >= 2 and len(msg_lower) > 50
@@ -366,11 +338,21 @@ Incorrect or assumed information about important people, events, or personal det
                 except Exception as e:
                     print(f"Private DM failed (likely not friended): {e}")
 
-    # Decide if we should generate a bot reply
-    should_reply = not group_id or (group_id and bot_mentioned)  # private or @mentioned in group
+    # Determine if we should generate/send a bot reply
+    is_group = group_id is not None
+    bot_mentioned = False
+    if is_group and user_message:
+        bot_name = line_bot_api.get_bot_info().display_name or "Echo"
+        bot_mentioned = f"@{bot_name}" in user_message or f"@{bot_name.lower()}" in user_message.lower()
+
+    should_reply = not is_group or bot_mentioned  # reply in private OR if @mentioned in group
+
+    # If special reply already set (join/help), use it
+    if bot_reply is not None:
+        should_reply = True  # force reply for special cases
 
     if not should_reply:
-        # Log silent group message to Sheets
+        # Silent group message → log it
         profile = user_profiles[user_id]
         row_data = [
             timestamp,
@@ -395,7 +377,7 @@ Incorrect or assumed information about important people, events, or personal det
         save_memory()
         return ""  # No reply
 
-    # Normal LLM reply
+    # Generate normal LLM reply
     prompt = ChatPromptTemplate.from_messages([
         MessagesPlaceholder(variable_name="history"),
     ])
