@@ -1,11 +1,9 @@
 fastapi
 uvicorn
 line-bot-sdk
-langchain-groq
-wikipedia
-langchain-community
+langchain-xai          # ← NEW for Grok 4
 langchain-core
 gspread
 google-auth
 nest_asyncio
-aiohttp # for async download
+aiohttp
