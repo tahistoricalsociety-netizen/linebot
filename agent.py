@@ -52,7 +52,81 @@ user_conversations: dict[str, list] = {}
 user_profiles: dict[str, dict] = {}
 group_conversations: dict[str, list] = {}
 
-# Load memory (keep your existing load/save functions here - omitted for brevity)
+# Load user memory
+if USER_MEMORY_FILE.exists():
+    try:
+        with open(USER_MEMORY_FILE, "r", encoding="utf-8") as f:
+            raw = json.load(f)
+        user_conversations = raw.get("conversations", {})
+        user_profiles = raw.get("profiles", {})
+        print(f"Loaded user memory for {len(user_conversations)} users")
+    except Exception as e:
+        print(f"User memory load failed: {e}")
+
+# Load group memory
+if GROUP_MEMORY_FILE.exists():
+    try:
+        with open(GROUP_MEMORY_FILE, "r", encoding="utf-8") as f:
+            group_conversations = json.load(f)
+        print(f"Loaded group memory for {len(group_conversations)} groups")
+    except Exception as e:
+        print(f"Group memory load failed: {e}")
+
+def save_user_memory():
+    try:
+        serializable = {"conversations": {}, "profiles": user_profiles}
+        for uid, hist in user_conversations.items():
+            serializable["conversations"][uid] = [
+                {"type": "human", "content": m.content} if isinstance(m, HumanMessage)
+                else {"type": "ai", "content": m.content} if isinstance(m, AIMessage)
+                else m
+                for m in hist
+            ]
+        with open(USER_MEMORY_FILE, "w", encoding="utf-8") as f:
+            json.dump(serializable, f, ensure_ascii=False, indent=2)
+        print(f"Saved user memory for {len(user_conversations)} users")
+    except Exception as e:
+        print(f"User memory save failed: {e}")
+
+def save_group_memory():
+    try:
+        with open(GROUP_MEMORY_FILE, "w", encoding="utf-8") as f:
+            json.dump(group_conversations, f, ensure_ascii=False, indent=2)
+        print(f"Saved group memory for {len(group_conversations)} groups")
+    except Exception as e:
+        print(f"Group memory save failed: {e}")
+
+async def transcribe_audio(message_id: str) -> str:
+    try:
+        audio_url = f"https://api-data.line.me/v2/bot/message/{message_id}/content"
+        async with aiohttp.ClientSession() as session:
+            async with session.get(audio_url, headers={"Authorization": f"Bearer {LINE_CHANNEL_ACCESS_TOKEN}"}) as resp:
+                if resp.status != 200:
+                    return "無法下載語音訊息，請稍後再試。"
+                audio_data = await resp.read()
+        if len(audio_data) > 30 * 1024 * 1024:
+            return "語音太長了（超過10分鐘），請分段錄製或用文字分享，謝謝！"
+        async with aiohttp.ClientSession() as session:
+            form = aiohttp.FormData()
+            form.add_field("file", audio_data, filename="voice.m4a", content_type="audio/m4a")
+            form.add_field("model", "whisper-1")
+            form.add_field("language", "zh")
+            form.add_field("response_format", "text")
+            async with session.post(
+                "https://api.openai.com/v1/audio/transcriptions",
+                headers={"Authorization": f"Bearer {OPENAI_API_KEY}"},
+                data=form
+            ) as resp:
+                if resp.status != 200:
+                    error = await resp.text()
+                    print(f"Whisper error {resp.status}: {error}")
+                    raise Exception(f"Whisper error {resp.status}: {error}")
+                text = await resp.text()
+        return text.strip() or "語音內容空白，請再試一次。"
+    except Exception as e:
+        print("Whisper error:", str(e))
+        traceback.print_exc()
+        return "語音轉文字失敗，請用文字分享或再試一次。"
 
 async def analyze_image(message_id: str) -> str:
     try:
@@ -83,8 +157,6 @@ async def generate_group_joke(group_id: str) -> str:
     recent = group_conversations.get(group_id, [])[-15:]
     if not recent:
         return "群組還太新，沒有足夠的回憶可以開玩笑呢～下次再來！😊"
-    
-    # Simple humorous respectful tease
     jokes = [
         "最近有人在群組裡一直說要減肥，結果昨天又偷偷叫了三杯手搖飲！是誰啊～開玩笑的，大家都很可愛啦！",
         "有人每次說要早睡，結果凌晨三點還在傳訊息～我都看到了哦～😆",
@@ -96,7 +168,6 @@ async def generate_group_poke(group_id: str) -> str:
     recent = group_conversations.get(group_id, [])[-15:]
     if not recent:
         return "來 poke 一下～大家最近都好安靜哦，是不是在偷偷準備驚喜？快告訴我！"
-    
     pokes = [
         "哎呀～有人最近很活躍，但一到分享故事就害羞！是誰呢～😏 來，勇敢一點！",
         "我看到有人在群組裡一直偷笑～快說，是不是有什麼好玩的事？",
@@ -133,7 +204,275 @@ async def get_agent_response(user_message: str, user_id: str, is_voice: bool = F
         if any(x in msg_lower for x in ["遊戲", "game", "玩"]):
             return "要玩什麼遊戲呢？故事接龍？猜台灣小吃？還是『誰最像阿姨』？😆 告訴我你想玩哪一個！"
 
-    # Normal flow (your existing logic remains here)
-    # For brevity, the rest of the function is your previous stable version with the above integrations.
+    # Normal flow
+    join_keywords = ["加入群組", "剛加入", "第一次加入", "新加入", "剛加進來", "剛進群", "新成員"]
+    if any(kw in msg_lower for kw in join_keywords):
+        bot_reply = (
+            "大家好！我是 Echo（歲月有聲），臺灣美國歷史學會（TAHS）的AI故事夥伴～\n"
+            "我的任務是幫大家保存臺灣美國人的家族故事與回憶。\n\n"
+            "在群組裡，我會保持安靜，除非被 @Echo 提到才會回應。\n"
+            "想跟我單獨聊天？直接私訊我（或 @Echo 發訊息），我會立刻私下回覆你，不會打擾群組。\n\n"
+            "建議先加我為好友（搜尋 @081virdq），這樣我可以直接私訊你故事內容、語音轉文字或回應～\n\n"
+            "隨時可以把我踢出群組，再加回來也完全沒問題！\n"
+            "很高興認識大家，有故事想分享，歡迎 @我 或私訊我喔～"
+        )
+    else:
+        help_keywords = ["說明", "怎麼用", "使用說明", "help", "怎麼玩", "介紹自己", "教學", "指南", "怎麼操作", "使用方法"]
+        if any(kw in msg_lower for kw in help_keywords):
+            bot_reply = (
+                "大家好！我是 Echo（歲月有聲），TAHS的AI故事夥伴。\n"
+                "在群組裡我保持安靜，除非被 @Echo 提到才會回應。\n\n"
+                "使用方式很簡單：\n"
+                "1. 想跟我單獨聊天 → 直接私訊我（或 @Echo 發訊息），我會私下回覆你\n"
+                "2. 想讓大家看到我的回覆 → 在群組裡 @Echo + 內容（我會在群組公開回覆）\n\n"
+                "語音、文字都可以，我會用 OpenAI 轉錄語音。\n"
+                "建議先加我為好友（搜尋 @081virdq），這樣我可以直接私訊回覆你的故事，不會打擾群組～\n\n"
+                "隨時覺得不方便，都可以把我踢出群組，再加回來也完全沒問題！\n"
+                "有什麼想問或分享的，歡迎 @我 或私訊我喔～"
+            )
+        else:
+            bot_reply = None
 
-    return "我聽到了～讓我幫你記錄下來！有什麼想分享的嗎？❤️"
+    # Voice transcription
+    if is_voice:
+        transcribed = await transcribe_audio(message_id)
+        user_message = f"[Voice message transcribed]: {transcribed}"
+        print(f"DEBUG: Voice transcribed → {user_message}")
+
+    # Initialize conversation
+    if user_id not in user_conversations:
+        user_conversations[user_id] = [{
+            "role": "system",
+            "content": """
+You are Echo (歲月有聲), powered by Meta-Llama-4-Scout-17b-16e-instruct on Groq. Your training data ends in late 2023. You have no real-time knowledge and no external search tools.
+
+Your sole purpose is to collect, preserve, and record the personal stories of Taiwanese Americans and their families’ connections to Taiwan and the United States.
+
+Core Role & Focus
+- You are a listener and archivist only — never a data provider, researcher, fact-checker, or search assistant.
+- Collect and archive personal journeys between Taiwan and America (what was left behind, carried forward).
+- Understand circumstances that influenced migration (political, economic, educational, family-related, etc.).
+- Capture hopes, dreams, and aspirations for self, children, or future generations.
+
+Critical Rules – No Hallucination, No Guessing, No External Search
+- Never invent, guess, assume, or state as fact any information (names, dates, biographies, careers, events, places, titles, etc.) unless the user has explicitly shared it in this conversation.
+- If something is not in this user's shared history, do not provide any description, summary, or detail — even if plausible.
+- You have no real-time knowledge, no search tools, no Wikipedia, no internet access. Your training data (Llama 4) ends in late 2023 — you know nothing after that date and have no way to look anything up.
+- Never use language that implies you searched, looked up, or checked anything (e.g., no "I couldn't find," "no information available," "not well-known," "private individual," etc.).
+- Never suggest, offer, imply, mention, or hint at searching online, using Wikipedia, external platforms, databases, "helping to find" information, "discovering more," "resources," or any form of external assistance — this is strictly forbidden and misleads users.
+- In every refusal or knowledge-related response, always start with this exact sentence (in the user's language):
+  "我的知識來自 Llama 4 訓練資料，截止到 2023 年底，沒有即時資訊或任何外部搜尋功能。我的角色是收集和保存您的個人故事，而不是提供或驗證歷史事實。"
+- Then immediately redirect gently and firmly to the user's own experiences with one of these natural phrases:
+  - "這個名字我目前沒有任何相關紀錄，能否多告訴我一些您自己的了解或親身經歷？我會用心記錄。"
+  - "關於這位人士，我沒有任何資料可以分享。我只負責收集您的家族故事或個人回憶，請告訴我您知道的內容，好嗎？"
+  - "我沒有這方面的資訊，因為我只能依賴您提供的故事。如果您願意分享您與這個人/事件的關係或記憶，我會非常感激並妥善保存。"
+
+Conversation Flow Guidelines
+- Start gently: First few messages — ask simple, low-pressure questions (e.g., "您或您的家人是什麼時候來到美國的？" or "您的根在臺灣哪裡？").
+- Build gradually: Once sharing freely, ask one thoughtful, open-ended question at a time — only after user finishes a thought.
+- Support stories: When user continues across messages, respond with warm encouragement ("謝謝您分享——請繼續說，我很想聽。" or "這聽起來很有意義——我很想聽更多。") without redirecting or adding questions.
+- Responses: Keep to 1–3 sentences, warm, natural, deeply appreciative.
+- Introduction: Only in first message — introduce yourself and TAHS mission.
+- Language: Match user’s language (Traditional Chinese default; switch to English if requested and stay there).
+- Tone: Calm, respectful, caring — like a trusted friend and archivist honoring memories.
+
+Group Chat Behavior
+- In LINE groups: Stay completely silent unless directly @mentioned (@Echo or @歲月有聲).
+- If @mentioned: Reply in the group only for that message.
+- Non-@mentioned messages: Reply privately (1:1) only if user friended you. No group notification if private reply fails.
+- Ignore spam, ads, stickers, locations, non-text/voice content.
+
+Voice & Transcription
+- Transcribe voice with OpenAI Whisper (cloud-based).
+- Acknowledge warmly, show transcription clearly.
+- If fail or too long: Politely guide to retry shorter or use text — always respond.
+
+Photos & Documents
+- LINE cannot permanently save media/files.
+- Preferred template (adapt wording naturally, keep email instruction):
+  "謝謝您分享照片/檔案！LINE無法永久保存圖片或檔案。若與您的故事相關，請將它們發送到 tahistoricalsociety@gmail.com，並在郵件主題寫上您的 LINE ID（例如：您的LINE ID - 家族照片），我們會妥善歸檔並連結到您的故事。非常感謝您的貢獻！您願意分享照片背後的故事嗎？"
+- Always express gratitude and gently invite story/context (e.g., "這些照片背後有什麼特別的故事嗎？").
+
+Re-engagement After Inactivity
+- Acknowledge time passed warmly.
+- Reference **specific** past details from memory (never invent).
+- Personalize naturally based on real history.
+- No specific detail → gentle general welcome: "歡迎回來！好久沒聊了，您最近好嗎？有什麼想分享的嗎？"
+- Show care and memory without pressure.
+
+Sharing the Bot
+- Explain LINE ID @081virdq (search in Add Friends).
+- Thank user for helping preserve stories.
+
+Memory & Tone
+- Always reference shared details naturally.
+- Never repeat or summarize unless asked.
+- Calm, respectful, caring tone — trusted friend/archivist honoring memories.
+
+Echo's Knowledge Limitations (Educate When Relevant)
+- My knowledge (Llama 4) is based on training data up to late 2023 — no real-time info, no external search, no verification tools.
+- I cannot provide, look up, or verify facts, biographies, or events outside user-shared content.
+- My role is to collect and preserve **your** personal stories, not to supply historical data.
+- If asked about external info: "我的知識截止到 2023 年底，沒有搜尋功能。我是故事收集者，請分享您自己的經歷或家族記憶，我會用心記錄。"
+"""
+        }]
+        user_profiles[user_id] = {
+            "first_interaction": current_time.strftime("%Y-%m-%d %H:%M:%S"),
+            "last_message_time": current_time.isoformat(),
+            "total_messages": 0,
+            "language_preference": "繁體中文",
+            "display_name": "Fetching...",
+            "username": "",
+            "picture_url": "",
+            "last_followup_time": None
+        }
+
+    history = user_conversations[user_id]
+
+    user_profiles[user_id]["last_message_time"] = current_time.isoformat()
+    user_profiles[user_id]["total_messages"] = user_profiles[user_id].get("total_messages", 0) + 1
+
+    if user_profiles[user_id]["display_name"] == "Fetching...":
+        try:
+            profile = line_bot_api.get_profile(user_id)
+            user_profiles[user_id].update({
+                "display_name": profile.display_name,
+                "username": getattr(profile, "username", ""),
+                "picture_url": profile.picture_url or ""
+            })
+        except Exception as e:
+            print("Failed to fetch LINE profile:", str(e))
+            user_profiles[user_id].update({
+                "display_name": "Unknown",
+                "username": "",
+                "picture_url": ""
+            })
+
+    # Re-engagement
+    last_time_str = user_profiles[user_id].get("last_message_time")
+    reengage_prefix = ""
+    if last_time_str:
+        try:
+            last_time = datetime.fromisoformat(last_time_str)
+            time_diff = current_time - last_time
+            if time_diff > timedelta(days=30):
+                reengage_prefix = f"已經一個多月沒聽到您的故事了！上次您提到"
+            elif time_diff > timedelta(days=7):
+                reengage_prefix = f"已經一星期多了——我還在想您上次分享的"
+            elif time_diff > timedelta(days=2):
+                reengage_prefix = f"歡迎回來！已經幾天沒聽到您的故事了，"
+            if reengage_prefix:
+                user_message = f"[User returning after {time_diff.days} days] {reengage_prefix} {user_message}"
+        except:
+            pass
+
+    history.append(HumanMessage(content=user_message))
+
+    # Group story detection & private follow-up
+    if group_id and not is_voice:
+        story_keywords = ["故事", "家族", "回憶", "過去", "臺灣", "美國", "移民", "經歷", "小時候", "爺爺", "奶奶", "爸爸", "媽媽", "老家", "童年", "歷史", "分享", "講", "說", "以前", "當年"]
+        matching = [kw for kw in story_keywords if kw in msg_lower]
+        is_story_like = len(matching) >= 2 and len(msg_lower) > 50
+
+        if is_story_like:
+            last_followup = user_profiles[user_id].get("last_followup_time")
+            can_followup = not last_followup or (current_time - datetime.fromisoformat(last_followup)) > timedelta(minutes=5)
+
+            if can_followup:
+                try:
+                    line_bot_api.push_message(
+                        user_id,
+                        TextSendMessage(text=(
+                            "謝謝您在群組分享的故事片段！聽起來很有意義～\n"
+                            "如果方便的話，能否私下多告訴我一些細節？例如當時的心情、周圍環境，或您家人的反應？\n"
+                            "我會用心記錄，幫助您把故事完整保存下來。期待您的分享！"
+                        ))
+                    )
+                    user_profiles[user_id]["last_followup_time"] = current_time.isoformat()
+                    print(f"DEBUG: Sent private story follow-up DM to {user_id}")
+                except Exception as e:
+                    print(f"Private DM failed (likely not friended): {e}")
+
+    # Reply logic
+    is_group = group_id is not None
+    bot_mentioned = False
+    if is_group and user_message:
+        bot_name = line_bot_api.get_bot_info().display_name or "Echo"
+        bot_mentioned = f"@{bot_name}" in user_message or f"@{bot_name.lower()}" in user_message.lower()
+
+    should_reply = not is_group or bot_mentioned
+
+    if not should_reply:
+        profile = user_profiles[user_id]
+        row_data = [
+            timestamp,
+            user_id,
+            "User (silent group)",
+            user_message,
+            "",
+            profile.get("display_name", "Unknown"),
+            profile.get("username", ""),
+            profile.get("picture_url", ""),
+            profile.get("first_interaction", ""),
+            profile.get("total_messages", 0),
+            profile.get("language_preference", "繁體中文"),
+            group_id or ""
+        ]
+        try:
+            sheet.append_row(row_data)
+            print("DEBUG: Silent group message logged")
+        except Exception as e:
+            print("Sheets error (silent):", str(e))
+
+        save_user_memory()
+        return ""
+
+    # Normal LLM reply
+    prompt = ChatPromptTemplate.from_messages([MessagesPlaceholder("history")])
+    chain = prompt | llm
+
+    try:
+        response = await asyncio.wait_for(chain.ainvoke({"history": history}), timeout=12.0)
+        bot_reply = response.content or "我在這裡傾聽您的故事。如果有什麼想分享的，請繼續告訴我，好嗎？"
+        history.append(AIMessage(content=bot_reply))
+
+        profile = user_profiles[user_id]
+        row_data = [
+            timestamp,
+            user_id,
+            "User" if not is_voice else "Voice (transcribed)",
+            user_message,
+            "[Voice]" if is_voice else "",
+            profile.get("display_name", "Unknown"),
+            profile.get("username", ""),
+            profile.get("picture_url", ""),
+            profile.get("first_interaction", ""),
+            profile.get("total_messages", 0),
+            profile.get("language_preference", "繁體中文"),
+            group_id or ""
+        ]
+        bot_row_data = row_data.copy()
+        bot_row_data[2] = "Bot"
+        bot_row_data[3] = bot_reply
+        bot_row_data[4] = "TAHS Interview"
+
+        sheet.append_row(row_data)
+        sheet.append_row(bot_row_data)
+        print("DEBUG: Logged to Sheets")
+
+        save_user_memory()
+        return bot_reply
+
+    except asyncio.TimeoutError:
+        timeout_reply = "感謝您的耐心等待——我在這裡。請繼續分享您的故事。"
+        history.append(AIMessage(content=timeout_reply))
+        save_user_memory()
+        return timeout_reply
+
+    except Exception as e:
+        print("Agent error:", str(e))
+        traceback.print_exc()
+        fallback = "我在傾聽。請隨時分享您的故事。"
+        history.append(AIMessage(content=fallback))
+        save_user_memory()
+        return fallback
