@@ -21,7 +21,7 @@ if not XAI_API_KEY:
 
 llm = ChatXAI(
     xai_api_key=XAI_API_KEY,
-    model="grok-4",
+    model="grok-4-1-fast-non-reasoning",
     temperature=0.78,
     max_tokens=4096,
 )
