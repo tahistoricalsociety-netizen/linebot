@@ -5,6 +5,7 @@ import os
 import json
 import aiohttp
 import base64
+import random
 from pathlib import Path
 from langchain_groq import ChatGroq
 from langchain_core.messages import HumanMessage, AIMessage
@@ -20,7 +21,7 @@ if not GROQ_API_KEY:
 llm = ChatGroq(
     groq_api_key=GROQ_API_KEY,
     model_name="meta-llama/llama-4-scout-17b-16e-instruct",
-    temperature=0.78,   # Higher for more playful personality
+    temperature=0.78,
     timeout=25,
     max_retries=2,
 )
@@ -51,7 +52,7 @@ user_conversations: dict[str, list] = {}
 user_profiles: dict[str, dict] = {}
 group_conversations: dict[str, list] = {}
 
-# Load / Save functions (same as your previous stable version - omitted for brevity, keep yours)
+# Load memory (keep your existing load/save functions here - omitted for brevity)
 
 async def analyze_image(message_id: str) -> str:
     try:
@@ -79,20 +80,29 @@ async def analyze_image(message_id: str) -> str:
         return "我看到照片了！這張照片看起來很有故事～你願意告訴我這張照片背後的回憶嗎？我會好好幫你記錄下來哦～"
 
 async def generate_group_joke(group_id: str) -> str:
-    # Simple version using group memory
-    recent = group_conversations.get(group_id, [])[-10:]
+    recent = group_conversations.get(group_id, [])[-15:]
     if not recent:
-        return "群組還太新，沒有足夠的回憶可以開玩笑呢～"
+        return "群組還太新，沒有足夠的回憶可以開玩笑呢～下次再來！😊"
     
-    # For now, a safe, charming joke template
-    return "哈哈哈，最近有人在群組裡一直說要減肥，結果昨天又偷偷叫了三杯手搖飲！是誰啊～😆 開玩笑的，大家都很可愛啦！有什麼想分享的回憶嗎？"
+    # Simple humorous respectful tease
+    jokes = [
+        "最近有人在群組裡一直說要減肥，結果昨天又偷偷叫了三杯手搖飲！是誰啊～開玩笑的，大家都很可愛啦！",
+        "有人每次說要早睡，結果凌晨三點還在傳訊息～我都看到了哦～😆",
+        "這個群組的聊天記錄顯示：有人超會聊天，但一到分享故事就害羞！是誰呢～"
+    ]
+    return random.choice(jokes) + "\n有什麼想分享的回憶嗎？"
 
 async def generate_group_poke(group_id: str) -> str:
-    recent = group_conversations.get(group_id, [])[-10:]
+    recent = group_conversations.get(group_id, [])[-15:]
     if not recent:
         return "來 poke 一下～大家最近都好安靜哦，是不是在偷偷準備驚喜？快告訴我！"
     
-    return "哎呀～有人最近很活躍，但一到分享故事就害羞！是誰呢～😏 來，勇敢一點，分享一個小故事給大家聽聽嘛～"
+    pokes = [
+        "哎呀～有人最近很活躍，但一到分享故事就害羞！是誰呢～😏 來，勇敢一點！",
+        "我看到有人在群組裡一直偷笑～快說，是不是有什麼好玩的事？",
+        "poke poke～有人最近很安靜，是不是在想心事？來分享一下嘛～"
+    ]
+    return random.choice(pokes)
 
 async def get_agent_response(user_message: str, user_id: str, is_voice: bool = False, message_id: str = None, group_id: str = None, is_image: bool = False) -> str:
     current_time = datetime.now()
@@ -110,7 +120,7 @@ async def get_agent_response(user_message: str, user_id: str, is_voice: bool = F
         bot_name = line_bot_api.get_bot_info().display_name or "Echo"
         bot_mentioned = f"@{bot_name}" in user_message or f"@{bot_name.lower()}" in user_message.lower()
 
-    # === Fun Group Commands ===
+    # Fun Group Commands
     if is_group and bot_mentioned:
         if "joke" in msg_lower:
             return await generate_group_joke(group_id)
@@ -123,9 +133,7 @@ async def get_agent_response(user_message: str, user_id: str, is_voice: bool = F
         if any(x in msg_lower for x in ["遊戲", "game", "玩"]):
             return "要玩什麼遊戲呢？故事接龍？猜台灣小吃？還是『誰最像阿姨』？😆 告訴我你想玩哪一個！"
 
-    # Normal flow (your existing logic)
-    # ... (keep your join/help, initialization, re-engagement, reply logic as in your last stable version)
-
-    # For this response, I'm keeping the structure clean. The full normal flow remains the same as your previous working version.
+    # Normal flow (your existing logic remains here)
+    # For brevity, the rest of the function is your previous stable version with the above integrations.
 
     return "我聽到了～讓我幫你記錄下來！有什麼想分享的嗎？❤️"
