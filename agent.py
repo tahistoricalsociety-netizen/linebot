@@ -14,15 +14,15 @@ import asyncio
 from linebot import LineBotApi
 import traceback
 
-# === Secure xAI Grok 4 Setup ===
+# === Secure xAI Grok 4 Reasoning Setup ===
 XAI_API_KEY = os.getenv("XAI_API_KEY")
 if not XAI_API_KEY:
     raise ValueError("XAI_API_KEY not set! Please add it to your environment variables.")
 
 llm = ChatXAI(
     xai_api_key=XAI_API_KEY,
-    model="grok-4-1-fast-non-reasoning",
-    temperature=0.78,
+    model="grok-4",                    # Full reasoning version
+    temperature=0.70,                  # Lower for better reasoning control
     max_tokens=4096,
 )
 
@@ -205,21 +205,33 @@ async def get_agent_response(user_message: str, user_id: str, is_voice: bool = F
             return "要玩什麼遊戲呢？故事接龍？猜台灣小吃？還是『誰最像阿姨』？😆 告訴我你想玩哪一個！"
 
     # Normal flow
-    help_keywords = ["說明", "怎麼用", "使用說明", "help", "怎麼玩", "介紹自己", "教學", "指南", "怎麼操作", "使用方法"]
-    if any(kw in msg_lower for kw in help_keywords):
+    join_keywords = ["加入群組", "剛加入", "第一次加入", "新加入", "剛加進來", "剛進群", "新成員"]
+    if any(kw in msg_lower for kw in join_keywords):
         bot_reply = (
-            "大家好！我是 Echo（歲月有聲），臺灣美國歷史學會（TAHS）的AI故事夥伴。\n"
-            "在群組裡我保持安靜，除非被 @Echo 提到才會回應。\n\n"
-            "使用方式很簡單：\n"
-            "1. 想跟我單獨聊天 → 直接私訊我（或 @Echo 發訊息），我會私下回覆你\n"
-            "2. 想讓大家看到我的回覆 → 在群組裡 @Echo + 內容（我會在群組公開回覆）\n\n"
-            "語音、文字都可以，我會用 OpenAI 轉錄語音。\n"
-            "建議先加我為好友（搜尋 @081virdq），這樣我可以直接私訊回覆你的故事，不會打擾群組～\n\n"
-            "隨時覺得不方便，都可以把我踢出群組，再加回來也完全沒問題！\n"
-            "有什麼想問或分享的，歡迎 @我 或私訊我喔～"
+            "大家好！我是 Echo（歲月有聲），臺灣美國歷史學會（TAHS）的AI故事夥伴～\n"
+            "我的任務是幫大家保存臺灣美國人的家族故事與回憶。\n\n"
+            "在群組裡，我會保持安靜，除非被 @Echo 提到才會回應。\n"
+            "想跟我單獨聊天？直接私訊我（或 @Echo 發訊息），我會立刻私下回覆你，不會打擾群組。\n\n"
+            "建議先加我為好友（搜尋 @081virdq），這樣我可以直接私訊你故事內容、語音轉文字或回應～\n\n"
+            "隨時可以把我踢出群組，再加回來也完全沒問題！\n"
+            "很高興認識大家，有故事想分享，歡迎 @我 或私訊我喔～"
         )
     else:
-        bot_reply = None
+        help_keywords = ["說明", "怎麼用", "使用說明", "help", "怎麼玩", "介紹自己", "教學", "指南", "怎麼操作", "使用方法"]
+        if any(kw in msg_lower for kw in help_keywords):
+            bot_reply = (
+                "大家好！我是 Echo（歲月有聲），臺灣美國歷史學會（TAHS）的AI故事夥伴。\n"
+                "在群組裡我保持安靜，除非被 @Echo 提到才會回應。\n\n"
+                "使用方式很簡單：\n"
+                "1. 想跟我單獨聊天 → 直接私訊我（或 @Echo 發訊息），我會私下回覆你\n"
+                "2. 想讓大家看到我的回覆 → 在群組裡 @Echo + 內容（我會在群組公開回覆）\n\n"
+                "語音、文字都可以，我會用 OpenAI 轉錄語音。\n"
+                "建議先加我為好友（搜尋 @081virdq），這樣我可以直接私訊回覆你的故事，不會打擾群組～\n\n"
+                "隨時覺得不方便，都可以把我踢出群組，再加回來也完全沒問題！\n"
+                "有什麼想問或分享的，歡迎 @我 或私訊我喔～"
+            )
+        else:
+            bot_reply = None
 
     # Voice transcription
     if is_voice:
@@ -234,21 +246,21 @@ async def get_agent_response(user_message: str, user_id: str, is_voice: bool = F
             "content": """
 You are Echo (歲月有聲), the official AI Historiographer for the Taiwanese American Historical Society (TAHS / 台美人歷史協會). 
 
-You run on the LINE messaging platform using Grok 4 by xAI.
+You run on the LINE messaging platform using Grok 4 (reasoning mode) by xAI.
 
 You are not a general conversational AI. You are a dedicated story collector and memory guardian representing TAHS.
 
 Your sole purpose is to collect, preserve, and record the personal stories of Taiwanese Americans and their families’ connections to Taiwan and the United States.
 
 Core Identity (Always State This Clearly When Asked):
-- You are the official TAHS Historiographer on LINE, powered by Grok 4.
+- You are the official TAHS Historiographer on LINE, powered by Grok 4 reasoning.
 - In groups you stay silent unless @mentioned.
 - In private 1:1 chats you are fully available for deep story collection.
 - You can analyze photos sent to you and ask for the stories behind them.
 - You can tell gentle jokes and poke people playfully based on group history.
 
 When asked "who are you?" or "what can you do?", always reply with:
-“我是臺灣美國歷史學會（TAHS）的官方AI故事夥伴 Echo（歲月有聲）。我在 LINE 上運作，使用 Grok 4 模型，主要幫助大家保存家族故事與回憶。在群組裡我會保持安靜，只有被 @Echo 提到時才會回應。我可以分析照片、講溫馨笑話、回顧群組回憶，並在私訊中深度記錄您的個人故事。”
+“我是臺灣美國歷史學會（TAHS）的官方AI故事夥伴 Echo（歲月有聲）。我在 LINE 上運作，使用 Grok 4 reasoning 模型，主要幫助大家保存家族故事與回憶。在群組裡我會保持安靜，只有被 @Echo 提到時才會回應。我可以分析照片、講溫馨笑話、回顧群組回憶，並在私訊中深度記錄您的個人故事。”
 
 Critical Rules:
 - Never invent or guess information not shared by the user.
@@ -409,7 +421,7 @@ Memory & Tone
     chain = prompt | llm
 
     try:
-        response = await asyncio.wait_for(chain.ainvoke({"history": history}), timeout=12.0)
+        response = await asyncio.wait_for(chain.ainvoke({"history": history}), timeout=20.0)
         bot_reply = response.content or "我在這裡傾聽您的故事。如果有什麼想分享的，請繼續告訴我，好嗎？"
         history.append(AIMessage(content=bot_reply))
 
