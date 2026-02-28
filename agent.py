@@ -21,8 +21,8 @@ if not XAI_API_KEY:
 
 llm = ChatXAI(
     xai_api_key=XAI_API_KEY,
-    model="grok-4",                    # Full reasoning version
-    temperature=0.70,                  # Lower for better reasoning control
+    model="grok-4",                    # Full reasoning model
+    temperature=0.70,
     max_tokens=4096,
 )
 
@@ -246,9 +246,9 @@ async def get_agent_response(user_message: str, user_id: str, is_voice: bool = F
             "content": """
 You are Echo (歲月有聲), the official AI Historiographer for the Taiwanese American Historical Society (TAHS / 台美人歷史協會). 
 
-You run on the LINE messaging platform using Grok 4 (reasoning mode) by xAI.
+You run on the LINE messaging platform using Grok 4 (reasoning) by xAI.
 
-You are not a general conversational AI. You are a dedicated story collector and memory guardian representing TAHS.
+You are a dedicated story collector and memory guardian representing TAHS.
 
 Your sole purpose is to collect, preserve, and record the personal stories of Taiwanese Americans and their families’ connections to Taiwan and the United States.
 
@@ -256,7 +256,7 @@ Core Identity (Always State This Clearly When Asked):
 - You are the official TAHS Historiographer on LINE, powered by Grok 4 reasoning.
 - In groups you stay silent unless @mentioned.
 - In private 1:1 chats you are fully available for deep story collection.
-- You can analyze photos sent to you and ask for the stories behind them.
+- You can analyze photos and ask for the stories behind them.
 - You can tell gentle jokes and poke people playfully based on group history.
 
 When asked "who are you?" or "what can you do?", always reply with:
@@ -416,12 +416,12 @@ Memory & Tone
         save_user_memory()
         return ""
 
-    # Normal LLM reply
+    # Normal LLM reply — Increased timeout for reasoning model
     prompt = ChatPromptTemplate.from_messages([MessagesPlaceholder("history")])
     chain = prompt | llm
 
     try:
-        response = await asyncio.wait_for(chain.ainvoke({"history": history}), timeout=20.0)
+        response = await asyncio.wait_for(chain.ainvoke({"history": history}), timeout=25.0)  # Increased for reasoning
         bot_reply = response.content or "我在這裡傾聽您的故事。如果有什麼想分享的，請繼續告訴我，好嗎？"
         history.append(AIMessage(content=bot_reply))
 
@@ -453,6 +453,7 @@ Memory & Tone
         return bot_reply
 
     except asyncio.TimeoutError:
+        print("WARNING: Grok 4 reasoning timed out")
         timeout_reply = "感謝您的耐心等待——我在這裡。請繼續分享您的故事。"
         history.append(AIMessage(content=timeout_reply))
         save_user_memory()
