@@ -175,7 +175,7 @@ async def generate_group_poke(group_id: str) -> str:
     ]
     return random.choice(pokes)
 
-async def get_agent_response(user_message: str, user_id: str, is_voice: bool = False, message_id: str = None, group_id: str = None, is_image: bool = False) -> str:
+async def get_agent_response(user_message: str, user_id: str, is_voice: bool = False, message_id: str = None, group_id: str = None, is_image: bool = False, is_private_dm: bool = False) -> str:
     current_time = datetime.now()
     timestamp = current_time.strftime("%Y-%m-%d %H:%M:%S")
     msg_lower = user_message.lower()
@@ -203,6 +203,16 @@ async def get_agent_response(user_message: str, user_id: str, is_voice: bool = F
             return "來點美好的回憶吧！上次大家分享的照片裡...（開發中）"
         if any(x in msg_lower for x in ["遊戲", "game", "玩"]):
             return "要玩什麼遊戲呢？故事接龍？猜台灣小吃？還是『誰最像阿姨』？😆 告訴我你想玩哪一個！"
+
+    # Special private DM for photo in group
+    if is_image and is_private_dm:
+        return (
+            "我剛看到您在群組裡分享的照片了～\n\n"
+            "這張照片看起來很有故事！您願意告訴我這張照片背後的回憶嗎？\n\n"
+            "另外，如果這張照片有歷史價值（家族、臺灣、美國移民相關等），我們很希望能幫您永久存檔到 TAHS 檔案庫。\n"
+            "最簡單的方式：請把照片寄到 tahistoricalsociety@gmail.com，郵件主旨寫上您的 LINE ID（例如：您的LINEID - 家族照片），我們會立刻處理並連結到您的故事。\n\n"
+            "謝謝您讓我看到這張珍貴的照片！期待您的分享～❤️"
+        )
 
     # Normal flow
     join_keywords = ["加入群組", "剛加入", "第一次加入", "新加入", "剛加進來", "剛進群", "新成員"]
@@ -289,8 +299,8 @@ Voice & Transcription
 
 Photos & Documents
 - LINE cannot permanently save media/files.
-- Preferred template (adapt wording naturally):
-  "謝謝您分享照片/檔案！LINE無法永久保存圖片或檔案。若與您的故事相關，請將它們發送到 tahistoricalsociety@gmail.com，並在郵件主題寫上您的 LINE ID（例如：您的LINE ID - 家族照片），我們會妥善歸檔並連結到您的故事。非常感謝您的貢獻！您願意分享照片背後的故事嗎？"
+- When user sends photo in group without @Echo: Send private DM only.
+- In private DM for photo: Reference the group, ask for story, and offer archiving.
 
 Re-engagement After Inactivity
 - Acknowledge time passed warmly.
@@ -412,7 +422,7 @@ Memory & Tone
             print("Sheets error (silent):", str(e))
 
         save_user_memory()
-        return "我看到您的訊息了！請告訴我更多細節，我會用心記錄～"  # Safety fallback
+        return ""
 
     # Normal LLM reply
     prompt = ChatPromptTemplate.from_messages([MessagesPlaceholder("history")])

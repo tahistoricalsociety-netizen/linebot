@@ -70,8 +70,28 @@ def handle_message(event):
         bot_name = line_bot_api.get_bot_info().display_name or "Echo"
         bot_mentioned = f"@{bot_name}" in message_text or f"@{bot_name.lower()}" in message_text.lower()
 
-    # Always reply to images and voice, even in groups without @mention
-    should_reply = not is_group or bot_mentioned or isinstance(event.message, (ImageMessage, AudioMessage))
+    # === PHOTO HANDLING IN GROUP ===
+    if isinstance(event.message, ImageMessage):
+        if is_group and not bot_mentioned:
+            # PRIVATE DM only - no group reply
+            print(f"Photo in group → sending private DM to {user_id}")
+            try:
+                reply_text = asyncio.run(get_agent_response(
+                    user_message="",
+                    user_id=user_id,
+                    message_id=event.message.id,
+                    group_id=group_id,
+                    is_image=True,
+                    is_private_dm=True
+                ))
+                line_bot_api.push_message(user_id, TextSendMessage(text=reply_text))
+                print("Private DM for photo sent successfully")
+            except Exception as e:
+                print(f"Failed to send private DM for photo: {e}")
+            return   # Do NOT reply in group
+
+    # Normal reply logic
+    should_reply = not is_group or bot_mentioned
 
     if not should_reply:
         print("Silent in group: no @mention")
@@ -79,7 +99,6 @@ def handle_message(event):
 
     try:
         if isinstance(event.message, ImageMessage):
-            print("Image received → sending to vision")
             reply_text = asyncio.run(get_agent_response(
                 user_message="", 
                 user_id=user_id, 
@@ -97,10 +116,6 @@ def handle_message(event):
             reply_text = asyncio.run(get_agent_response(
                 message_text, user_id, group_id=group_id
             ))
-
-        # Safety: ensure reply_text is never empty
-        if not reply_text or reply_text.strip() == "":
-            reply_text = "我看到您的訊息了！請告訴我更多細節，我會用心記錄～"
 
         line_bot_api.reply_message(
             reply_token, TextSendMessage(text=reply_text)
@@ -126,7 +141,7 @@ def is_ad_or_spam(text: str) -> bool:
     ad_keywords = ["點贊", "訂閱", "轉發", "打賞", "支持", "關注", "like", "subscribe", "share", "粉絲", "關注我", "加我", "私信", "廣告", "廣播", "合作", "贊助", "抽獎", "免費", "領取", "領獎"]
     if any(kw in text for kw in ad_keywords):
         return True
-    if len(text) < 8 and len(set(text)) < 4:  # Very short repetitive text
+    if len(text) < 8 and len(set(text)) < 4:
         return True
     return False
 
