@@ -61,7 +61,8 @@ def handle_message(event):
     if isinstance(event.message, TextMessage):
         message_text = event.message.text.strip()
 
-    if is_group and is_ad_or_spam(message_text):
+    # Spam detection ONLY for text messages
+    if is_group and isinstance(event.message, TextMessage) and is_ad_or_spam(message_text):
         print("Ignored in group: ad/spam")
         return
 
@@ -70,7 +71,8 @@ def handle_message(event):
         bot_name = line_bot_api.get_bot_info().display_name or "Echo"
         bot_mentioned = f"@{bot_name}" in message_text or f"@{bot_name.lower()}" in message_text.lower()
 
-    should_reply = not is_group or bot_mentioned
+    # Always process images and voice in groups (important visuals)
+    should_reply = not is_group or bot_mentioned or isinstance(event.message, (ImageMessage, AudioMessage))
 
     if not should_reply:
         print("Silent in group: no @mention")
@@ -116,10 +118,19 @@ def handle_message(event):
 
 def is_ad_or_spam(text: str) -> bool:
     if not text:
-        return True
+        return False  # Do not block empty text (for images)
     text = text.lower()
-    ad_keywords = ["點贊", "訂閱", "轉發", "打賞", "支持", "關注", "like", "subscribe", "share"]
-    return any(kw in text for kw in ad_keywords) or len(text) < 5
+    ad_keywords = [
+        "點贊", "訂閱", "轉發", "打賞", "支持", "關注", "like", "subscribe", "share",
+        "粉絲", "關注我", "加我", "私信", "廣告", "廣播", "合作", "贊助", "抽獎",
+        "免費", "領取", "領獎", "連結", "http", "https", "www.", ".com", ".tw"
+    ]
+    # High accuracy: block if contains ad keyword OR very short repetitive text
+    if any(kw in text for kw in ad_keywords):
+        return True
+    if len(text) < 8 and len(set(text)) < 4:  # Very short and repetitive
+        return True
+    return False
 
 @handler.add(JoinEvent)
 def handle_join(event):
