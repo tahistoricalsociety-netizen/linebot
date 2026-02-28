@@ -412,7 +412,7 @@ Memory & Tone
             print("Sheets error (silent):", str(e))
 
         save_user_memory()
-        return ""
+        return "我看到您的訊息了！請告訴我更多細節，我會用心記錄～"  # Safety fallback
 
     # Normal LLM reply
     prompt = ChatPromptTemplate.from_messages([MessagesPlaceholder("history")])

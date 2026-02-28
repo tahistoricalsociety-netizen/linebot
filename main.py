@@ -61,7 +61,6 @@ def handle_message(event):
     if isinstance(event.message, TextMessage):
         message_text = event.message.text.strip()
 
-    # Spam detection ONLY for text messages
     if is_group and isinstance(event.message, TextMessage) and is_ad_or_spam(message_text):
         print("Ignored in group: ad/spam")
         return
@@ -71,7 +70,7 @@ def handle_message(event):
         bot_name = line_bot_api.get_bot_info().display_name or "Echo"
         bot_mentioned = f"@{bot_name}" in message_text or f"@{bot_name.lower()}" in message_text.lower()
 
-    # Always process images and voice in groups (important visuals)
+    # Always reply to images and voice, even in groups without @mention
     should_reply = not is_group or bot_mentioned or isinstance(event.message, (ImageMessage, AudioMessage))
 
     if not should_reply:
@@ -99,6 +98,10 @@ def handle_message(event):
                 message_text, user_id, group_id=group_id
             ))
 
+        # Safety: ensure reply_text is never empty
+        if not reply_text or reply_text.strip() == "":
+            reply_text = "我看到您的訊息了！請告訴我更多細節，我會用心記錄～"
+
         line_bot_api.reply_message(
             reply_token, TextSendMessage(text=reply_text)
         )
@@ -118,17 +121,12 @@ def handle_message(event):
 
 def is_ad_or_spam(text: str) -> bool:
     if not text:
-        return False  # Do not block empty text (for images)
+        return False
     text = text.lower()
-    ad_keywords = [
-        "點贊", "訂閱", "轉發", "打賞", "支持", "關注", "like", "subscribe", "share",
-        "粉絲", "關注我", "加我", "私信", "廣告", "廣播", "合作", "贊助", "抽獎",
-        "免費", "領取", "領獎", "連結", "http", "https", "www.", ".com", ".tw"
-    ]
-    # High accuracy: block if contains ad keyword OR very short repetitive text
+    ad_keywords = ["點贊", "訂閱", "轉發", "打賞", "支持", "關注", "like", "subscribe", "share", "粉絲", "關注我", "加我", "私信", "廣告", "廣播", "合作", "贊助", "抽獎", "免費", "領取", "領獎"]
     if any(kw in text for kw in ad_keywords):
         return True
-    if len(text) < 8 and len(set(text)) < 4:  # Very short and repetitive
+    if len(text) < 8 and len(set(text)) < 4:  # Very short repetitive text
         return True
     return False
 
