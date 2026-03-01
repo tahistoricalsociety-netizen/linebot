@@ -17,7 +17,7 @@ import traceback
 # === Secure xAI Grok 4 Reasoning Setup ===
 XAI_API_KEY = os.getenv("XAI_API_KEY")
 if not XAI_API_KEY:
-    raise ValueError("XAI_API_KEY not set! Please add it to your environment variables.")
+    raise ValueError("XAI_API_KEY not set!")
 
 llm = ChatXAI(
     xai_api_key=XAI_API_KEY,
@@ -26,19 +26,19 @@ llm = ChatXAI(
     max_tokens=4096,
 )
 
-# === OpenAI Whisper ===
+# === OpenAI Whisper for Voice Transcription ===
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 if not OPENAI_API_KEY:
     raise ValueError("OPENAI_API_KEY not set!")
 
-# === Google Sheets ===
+# === Google Sheets Setup ===
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 creds_info = json.loads(os.getenv("GOOGLE_CREDENTIALS"))
 creds = Credentials.from_service_account_info(creds_info, scopes=SCOPES)
 client = gspread.authorize(creds)
 sheet = client.open_by_key("1bDQuJTF-ene3Z8lXBKkFowwKKxAYcerpSRnbeFt38sg").sheet1
 
-# === LINE ===
+# === LINE Bot API ===
 LINE_CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
 if not LINE_CHANNEL_ACCESS_TOKEN:
     raise ValueError("LINE_CHANNEL_ACCESS_TOKEN not set!")
@@ -151,97 +151,28 @@ async def analyze_image(message_id: str) -> str:
 
     except Exception as e:
         print(f"Image analysis error: {e}")
-        return "我看到照片了！這張照片看起來很有故事～你願意告訴我這張照片背後的回憶嗎？我會好好幫你記錄下來哦～"
+        return "我看到照片了！這張照片看起來很有故事～"
 
-async def generate_group_joke(group_id: str) -> str:
-    recent = group_conversations.get(group_id, [])[-15:]
-    if not recent:
-        return "群組還太新，沒有足夠的回憶可以開玩笑呢～下次再來！😊"
-    jokes = [
-        "最近有人在群組裡一直說要減肥，結果昨天又偷偷叫了三杯手搖飲！是誰啊～開玩笑的，大家都很可愛啦！",
-        "有人每次說要早睡，結果凌晨三點還在傳訊息～我都看到了哦～😆",
-        "這個群組的聊天記錄顯示：有人超會聊天，但一到分享故事就害羞！是誰呢～"
-    ]
-    return random.choice(jokes) + "\n有什麼想分享的回憶嗎？"
-
-async def generate_group_poke(group_id: str) -> str:
-    recent = group_conversations.get(group_id, [])[-15:]
-    if not recent:
-        return "來 poke 一下～大家最近都好安靜哦，是不是在偷偷準備驚喜？快告訴我！"
-    pokes = [
-        "哎呀～有人最近很活躍，但一到分享故事就害羞！是誰呢～😏 來，勇敢一點！",
-        "我看到有人在群組裡一直偷笑～快說，是不是有什麼好玩的事？",
-        "poke poke～有人最近很安靜，是不是在想心事？來分享一下嘛～"
-    ]
-    return random.choice(pokes)
-
-async def get_agent_response(user_message: str, user_id: str, is_voice: bool = False, message_id: str = None, group_id: str = None, is_image: bool = False, is_private_dm: bool = False) -> str:
+async def get_agent_response(user_message: str, user_id: str, is_voice: bool = False, message_id: str = None, group_id: str = None, group_name: str = None, is_image: bool = False, is_private_dm: bool = False) -> str:
     current_time = datetime.now()
     timestamp = current_time.strftime("%Y-%m-%d %H:%M:%S")
     msg_lower = user_message.lower()
 
-    # Image Analysis
-    if is_image and message_id:
-        vision_desc = await analyze_image(message_id)
-        user_message = f"[Photo uploaded] {vision_desc}"
-
-    is_group = group_id is not None
-    bot_mentioned = False
-    if is_group and user_message:
-        bot_name = line_bot_api.get_bot_info().display_name or "Echo"
-        bot_mentioned = f"@{bot_name}" in user_message or f"@{bot_name.lower()}" in user_message.lower()
-
-    # Fun Group Commands
-    if is_group and bot_mentioned:
-        if "joke" in msg_lower:
-            return await generate_group_joke(group_id)
-        if "poke" in msg_lower:
-            return await generate_group_poke(group_id)
-        if any(x in msg_lower for x in ["總結", "summary", "recap"]):
-            return "好的！讓我幫大家總結最近的聊天～（開發中）"
-        if any(x in msg_lower for x in ["throwback", "回憶", "以前"]):
-            return "來點美好的回憶吧！上次大家分享的照片裡...（開發中）"
-        if any(x in msg_lower for x in ["遊戲", "game", "玩"]):
-            return "要玩什麼遊戲呢？故事接龍？猜台灣小吃？還是『誰最像阿姨』？😆 告訴我你想玩哪一個！"
-
-    # Special private DM for photo in group
-    if is_image and is_private_dm:
+    # === PRIVATE DM FOR GROUP PHOTO (NEW LOGIC) ===
+    if is_image and is_private_dm and group_name:
         return (
-            "我剛看到您在群組裡分享的照片了～\n\n"
-            "這張照片看起來很有故事！您願意告訴我這張照片背後的回憶嗎？\n\n"
-            "另外，如果這張照片有歷史價值（家族、臺灣、美國移民相關等），我們很希望能幫您永久存檔到 TAHS 檔案庫。\n"
+            f"我剛在「{group_name}」看到您分享的照片了～\n\n"
+            f"這張照片看起來很有故事！\n"
+            f"您願意告訴我這張照片背後的回憶嗎？\n\n"
+            "如果這張照片有歷史價值（家族、臺灣、美國移民相關等），我們很希望能幫您永久存檔到 TAHS 檔案庫。\n"
             "最簡單的方式：請把照片寄到 tahistoricalsociety@gmail.com，郵件主旨寫上您的 LINE ID（例如：您的LINEID - 家族照片），我們會立刻處理並連結到您的故事。\n\n"
             "謝謝您讓我看到這張珍貴的照片！期待您的分享～❤️"
         )
 
-    # Normal flow
-    join_keywords = ["加入群組", "剛加入", "第一次加入", "新加入", "剛加進來", "剛進群", "新成員"]
-    if any(kw in msg_lower for kw in join_keywords):
-        bot_reply = (
-            "大家好！我是 Echo（歲月有聲），臺灣美國歷史學會（TAHS）的AI故事夥伴～\n"
-            "我的任務是幫大家保存臺灣美國人的家族故事與回憶。\n\n"
-            "在群組裡，我會保持安靜，除非被 @Echo 提到才會回應。\n"
-            "想跟我單獨聊天？直接私訊我（或 @Echo 發訊息），我會立刻私下回覆你，不會打擾群組。\n\n"
-            "建議先加我為好友（搜尋 @081virdq），這樣我可以直接私訊你故事內容、語音轉文字或回應～\n\n"
-            "隨時可以把我踢出群組，再加回來也完全沒問題！\n"
-            "很高興認識大家，有故事想分享，歡迎 @我 或私訊我喔～"
-        )
-    else:
-        help_keywords = ["說明", "怎麼用", "使用說明", "help", "怎麼玩", "介紹自己", "教學", "指南", "怎麼操作", "使用方法"]
-        if any(kw in msg_lower for kw in help_keywords):
-            bot_reply = (
-                "大家好！我是 Echo（歲月有聲），臺灣美國歷史學會（TAHS）的AI故事夥伴。\n"
-                "在群組裡我保持安靜，除非被 @Echo 提到才會回應。\n\n"
-                "使用方式很簡單：\n"
-                "1. 想跟我單獨聊天 → 直接私訊我（或 @Echo 發訊息），我會私下回覆你\n"
-                "2. 想讓大家看到我的回覆 → 在群組裡 @Echo + 內容（我會在群組公開回覆）\n\n"
-                "語音、文字都可以，我會用 OpenAI 轉錄語音。\n"
-                "建議先加我為好友（搜尋 @081virdq），這樣我可以直接私訊回覆你的故事，不會打擾群組～\n\n"
-                "隨時覺得不方便，都可以把我踢出群組，再加回來也完全沒問題！\n"
-                "有什麼想問或分享的，歡迎 @我 或私訊我喔～"
-            )
-        else:
-            bot_reply = None
+    # Image Analysis (for 1:1 or @mentioned in group)
+    if is_image and message_id:
+        vision_desc = await analyze_image(message_id)
+        user_message = f"[Photo uploaded] {vision_desc}"
 
     # Voice transcription
     if is_voice:
@@ -389,40 +320,6 @@ Memory & Tone
                     print(f"DEBUG: Sent private story follow-up DM to {user_id}")
                 except Exception as e:
                     print(f"Private DM failed (likely not friended): {e}")
-
-    # Reply logic
-    is_group = group_id is not None
-    bot_mentioned = False
-    if is_group and user_message:
-        bot_name = line_bot_api.get_bot_info().display_name or "Echo"
-        bot_mentioned = f"@{bot_name}" in user_message or f"@{bot_name.lower()}" in user_message.lower()
-
-    should_reply = not is_group or bot_mentioned
-
-    if not should_reply:
-        profile = user_profiles[user_id]
-        row_data = [
-            timestamp,
-            user_id,
-            "User (silent group)",
-            user_message,
-            "",
-            profile.get("display_name", "Unknown"),
-            profile.get("username", ""),
-            profile.get("picture_url", ""),
-            profile.get("first_interaction", ""),
-            profile.get("total_messages", 0),
-            profile.get("language_preference", "繁體中文"),
-            group_id or ""
-        ]
-        try:
-            sheet.append_row(row_data)
-            print("DEBUG: Silent group message logged")
-        except Exception as e:
-            print("Sheets error (silent):", str(e))
-
-        save_user_memory()
-        return ""
 
     # Normal LLM reply
     prompt = ChatPromptTemplate.from_messages([MessagesPlaceholder("history")])

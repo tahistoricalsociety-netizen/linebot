@@ -7,7 +7,7 @@ import aiohttp
 from pathlib import Path
 from fastapi import FastAPI, Request, HTTPException
 from linebot import LineBotApi, WebhookHandler
-from linebot.exceptions import InvalidSignatureError
+from linebot.exceptions import InvalidSignatureError, LineBotApiError
 from linebot.models import (
     MessageEvent,
     TextMessage,
@@ -30,7 +30,7 @@ handler = WebhookHandler(CHANNEL_SECRET)
 
 @app.get("/")
 def root():
-    return {"message": "Echo is online and ready to make groups more fun and memorable!"}
+    return {"message": "Echo is online and ready to preserve stories with care ❤️"}
 
 @app.post("/webhook")
 async def webhook(request: Request):
@@ -61,6 +61,7 @@ def handle_message(event):
     if isinstance(event.message, TextMessage):
         message_text = event.message.text.strip()
 
+    # Spam filter only for text in groups
     if is_group and isinstance(event.message, TextMessage) and is_ad_or_spam(message_text):
         print("Ignored in group: ad/spam")
         return
@@ -70,69 +71,74 @@ def handle_message(event):
         bot_name = line_bot_api.get_bot_info().display_name or "Echo"
         bot_mentioned = f"@{bot_name}" in message_text or f"@{bot_name.lower()}" in message_text.lower()
 
-    # === PHOTO HANDLING IN GROUP ===
+    # === PHOTO HANDLING ===
     if isinstance(event.message, ImageMessage):
+        # Get group name for reference
+        group_name = "未知群組"
+        if is_group:
+            try:
+                summary = line_bot_api.get_group_summary(group_id)
+                group_name = summary.group_name
+            except:
+                pass
+
         if is_group and not bot_mentioned:
-            # PRIVATE DM only - no group reply
-            print(f"Photo in group → sending private DM to {user_id}")
+            # Try private DM first
+            print(f"Photo in group → attempting private DM to {user_id}")
             try:
                 reply_text = asyncio.run(get_agent_response(
                     user_message="",
                     user_id=user_id,
                     message_id=event.message.id,
                     group_id=group_id,
+                    group_name=group_name,
                     is_image=True,
                     is_private_dm=True
                 ))
                 line_bot_api.push_message(user_id, TextSendMessage(text=reply_text))
                 print("Private DM for photo sent successfully")
+                return  # Success → no group reply
+            except LineBotApiError as e:
+                if e.status_code == 400 or "not a friend" in str(e).lower():
+                    print(f"User {user_id} has not added Echo as friend → fallback to group")
+                    fallback_text = (
+                        f"謝謝您在「{group_name}」分享的照片！\n\n"
+                        "我已看到這張照片～\n"
+                        "想讓我幫您記錄這張照片背後的故事嗎？\n"
+                        "請先把我加入好友（搜尋 @081virdq），我會立刻私訊您繼續聊～\n"
+                        "很高興認識您！我是 Echo（歲月有聲），臺灣美國歷史學會的AI故事守護者❤️"
+                    )
+                    line_bot_api.reply_message(reply_token, TextSendMessage(text=fallback_text))
+                    return
+                else:
+                    raise
             except Exception as e:
-                print(f"Failed to send private DM for photo: {e}")
-            return   # Do NOT reply in group
+                print(f"Private DM failed: {e}")
 
-    # Normal reply logic
-    should_reply = not is_group or bot_mentioned
+        # If we reach here: either 1:1 chat or @mentioned in group
+        reply_text = asyncio.run(get_agent_response(
+            user_message="",
+            user_id=user_id,
+            message_id=event.message.id,
+            group_id=group_id,
+            group_name=group_name,
+            is_image=True
+        ))
 
-    if not should_reply:
-        print("Silent in group: no @mention")
-        return
+    elif isinstance(event.message, AudioMessage):
+        transcribed = asyncio.run(transcribe_audio(event.message.id))
+        reply_text = asyncio.run(get_agent_response(
+            transcribed, user_id, is_voice=True, message_id=event.message.id, group_id=group_id
+        ))
+        reply_text = f"已收到語音！轉錄如下：\n\n{transcribed}\n\n{reply_text}"
+    else:
+        reply_text = asyncio.run(get_agent_response(
+            message_text, user_id, group_id=group_id
+        ))
 
-    try:
-        if isinstance(event.message, ImageMessage):
-            reply_text = asyncio.run(get_agent_response(
-                user_message="", 
-                user_id=user_id, 
-                message_id=event.message.id, 
-                group_id=group_id,
-                is_image=True
-            ))
-        elif isinstance(event.message, AudioMessage):
-            transcribed = asyncio.run(transcribe_audio(event.message.id))
-            reply_text = asyncio.run(get_agent_response(
-                transcribed, user_id, is_voice=True, message_id=event.message.id, group_id=group_id
-            ))
-            reply_text = f"已收到語音！轉錄如下：\n\n{transcribed}\n\n{reply_text}"
-        else:
-            reply_text = asyncio.run(get_agent_response(
-                message_text, user_id, group_id=group_id
-            ))
-
-        line_bot_api.reply_message(
-            reply_token, TextSendMessage(text=reply_text)
-        )
-        print("Reply sent successfully!")
-
-    except Exception as e:
-        print("Error in handle_message:", str(e))
-        traceback.print_exc()
-        if not is_group:
-            try:
-                line_bot_api.reply_message(
-                    reply_token,
-                    TextSendMessage(text="很抱歉，我遇到小問題～請稍後再試！")
-                )
-            except:
-                pass
+    # Final reply
+    line_bot_api.reply_message(reply_token, TextSendMessage(text=reply_text))
+    print("Reply sent successfully!")
 
 def is_ad_or_spam(text: str) -> bool:
     if not text:
