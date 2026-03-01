@@ -26,19 +26,19 @@ llm = ChatXAI(
     max_tokens=4096,
 )
 
-# === OpenAI Whisper for Voice Transcription ===
+# === OpenAI Whisper ===
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 if not OPENAI_API_KEY:
     raise ValueError("OPENAI_API_KEY not set!")
 
-# === Google Sheets Setup ===
+# === Google Sheets ===
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 creds_info = json.loads(os.getenv("GOOGLE_CREDENTIALS"))
 creds = Credentials.from_service_account_info(creds_info, scopes=SCOPES)
 client = gspread.authorize(creds)
 sheet = client.open_by_key("1bDQuJTF-ene3Z8lXBKkFowwKKxAYcerpSRnbeFt38sg").sheet1
 
-# === LINE Bot API ===
+# === LINE ===
 LINE_CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
 if not LINE_CHANNEL_ACCESS_TOKEN:
     raise ValueError("LINE_CHANNEL_ACCESS_TOKEN not set!")
@@ -52,7 +52,7 @@ user_conversations: dict[str, list] = {}
 user_profiles: dict[str, dict] = {}
 group_conversations: dict[str, list] = {}
 
-# Load user memory
+# Load memory (same as before)
 if USER_MEMORY_FILE.exists():
     try:
         with open(USER_MEMORY_FILE, "r", encoding="utf-8") as f:
@@ -63,7 +63,6 @@ if USER_MEMORY_FILE.exists():
     except Exception as e:
         print(f"User memory load failed: {e}")
 
-# Load group memory
 if GROUP_MEMORY_FILE.exists():
     try:
         with open(GROUP_MEMORY_FILE, "r", encoding="utf-8") as f:
@@ -158,7 +157,7 @@ async def get_agent_response(user_message: str, user_id: str, is_voice: bool = F
     timestamp = current_time.strftime("%Y-%m-%d %H:%M:%S")
     msg_lower = user_message.lower()
 
-    # === PRIVATE DM FOR GROUP PHOTO (NEW LOGIC) ===
+    # PRIVATE DM FOR GROUP PHOTO
     if is_image and is_private_dm and group_name:
         return (
             f"我剛在「{group_name}」看到您分享的照片了～\n\n"
@@ -169,12 +168,10 @@ async def get_agent_response(user_message: str, user_id: str, is_voice: bool = F
             "謝謝您讓我看到這張珍貴的照片！期待您的分享～❤️"
         )
 
-    # Image Analysis (for 1:1 or @mentioned in group)
     if is_image and message_id:
         vision_desc = await analyze_image(message_id)
         user_message = f"[Photo uploaded] {vision_desc}"
 
-    # Voice transcription
     if is_voice:
         transcribed = await transcribe_audio(message_id)
         user_message = f"[Voice message transcribed]: {transcribed}"
